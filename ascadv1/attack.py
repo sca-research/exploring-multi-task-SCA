@@ -1,16 +1,14 @@
 from utility import read_from_h5_file  , get_hot_encode , load_model_from_name , get_rank , get_pow_rank, get_rank_list_from_prob_dist
 from utility import XorLayer , InvSboxLayer
-from utility import METRICS_FOLDER , MODEL_FOLDER
-from train_models import model_multi_task_single_target,model_single_task,model_multi_task_multi_target ,model_multi_task_single_target_multi_shares   , model_multi_task_single_target_one_shared_mask, model_multi_task_single_target_not_shared,model_multi_task_single_target_one_shared_mask_shared_branch
+from utility import METRICS_FOLDER 
+from train_models import model_multi_task_single_target,model_single_task    , model_multi_task_single_target_one_shared_mask, model_multi_task_single_target_not_shared,model_multi_task_single_target_one_shared_mask_shared_branch
 from gmpy2 import mpz,mul
-import argparse , parse
+import argparse 
 from multiprocessing import Process
 from tqdm import tqdm
 import numpy as np
 import pickle 
-import os
-        
-        
+   
 
 
 
@@ -32,8 +30,7 @@ class Attack:
 
         elif training_type == 'multi_task_single_target':
     
-            model = model_multi_task_single_target(multi_model = model_type,input_length = 250000)     
-            
+            model = model_multi_task_single_target(multi_model = model_type,input_length = 250000)                 
             target = 's'
   
         elif training_type == 'multi_task_single_target_not_shared':
@@ -45,23 +42,12 @@ class Attack:
             
             model = model_multi_task_single_target_one_shared_mask(multi_model = model_type,input_length = 250000)   
             target = 't'               
-        elif training_type == 'multi_task_single_target_one_shared_mask_cross':
-            
-            model = model_multi_task_single_target_one_shared_mask(cross_model = True,input_length = 250000)   
-            target = 't'               
 
-            
-            
         elif training_type == 'multi_task_single_target_one_shared_mask_shared_branch':
             
             model = model_multi_task_single_target_one_shared_mask_shared_branch(multi_model = model_type,input_length = 250000)    
             target = 't'                   
     
-        elif training_type == 'multi_task_multi_target':
-            
-            model = model_multi_task_multi_target(multi_model = model_type,input_length = 250000)   
-            target = 't'                    
-                        
         else:
             print('Some error here')       
 

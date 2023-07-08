@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat Mar  5 11:32:19 2022
-
-@author: martho
-"""
 from utility import load_model_from_name , VARIABLE_LIST , XorLayer, read_from_h5_file , KEY_FIXED, get_hot_encode , get_rank , get_pow_rank, METRICS_FOLDER  , get_rank_list_from_prob_dist
 import pickle
 from gmpy2 import mpz,mul
@@ -274,14 +268,6 @@ class Attack:
             print('Accuracy for byte {}'.format(byte + 2 ), acc)
         
             
-                
-                
-                    
-        # file = open('history_attack_experiments_{}'.format(self.n_experiments),'wb')
-        # pickle.dump(self.history_score,file)
-        # file.close()
-                
-                
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trains Neural Network Models')
 

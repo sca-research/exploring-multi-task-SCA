@@ -482,43 +482,6 @@ def load_dataset_hierarchical(byte,n_traces = 250000,multi_target =False,dataset
     else:
         return (X_profiling_dict,Y_profiling_dict)      
 
-def normalise_neural_trace(v):
-    # Shift up
-    return v - np.min(v)
-
-def normalise_neural_trace_single(v):
-    return divide_rows_by_max(normalise_neural_trace(v))
-
-def divide_rows_by_max(X):
-    if len(X.shape) == 1:
-        return X / np.max(X)
-    else:
-        return X / np.max(X, axis=1)[:, None]
-def normalise_neural_traces(X):
-    divided_by_max = divide_rows_by_max(X)
-    return divided_by_max
-
-def normalise_traces_to_int8(x):
-    x = normalise_neural_traces(x)
-    x = x * 128
-    return x.astype(np.int8)
-
-
-
-
-
-
-def get_hw(k):
-    hw = 0
-    for _ in range(8):
-        hw += k & 1
-        k = k >> 1
-    return hw 
-
-def convert_to_binary(e):
-    return [1 if e & (1 << (7-n)) else 0 for n in range(8)]   
-
-
 
 
 def get_rank_list_from_prob_dist(probdist,l):
