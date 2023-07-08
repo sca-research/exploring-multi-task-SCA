@@ -2,13 +2,8 @@
 # Paths to dataset and folder have to be changed
 
 
-
-
-
-
 import pickle
 import numpy as np
-import sys
 
 
 dict_parameters = {}
@@ -16,9 +11,9 @@ dict_parameters = {}
 dict_parameters['KEY'] = 0x00112233445566778899AABBCCDDEEFF 
 
 ########### PATHS & FILE MANAGEMENT ######################################
-DATASET_FOLDER= 'D:/dataset_masked_AES/dataset_ASCAD/' if sys.platform == 'win32' else  '/home/martho/datasets/ASCADv1/'  
+DATASET_FOLDER= '' 
 FILE_DATASET = 'Ascad_v1_dataset.h5'
-PROJECT_FOLDER = '/home/martho/Projets/exploring-multi-task-experiments/ascadv1/'  
+PROJECT_FOLDER = ''  
 
 dict_parameters['DATASET_FOLDER'] = DATASET_FOLDER
 dict_parameters['FILE_DATASET'] = FILE_DATASET
