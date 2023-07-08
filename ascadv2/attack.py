@@ -1,17 +1,17 @@
 from utility import read_from_h5_file, get_rank_list_from_prob_dist , adapt_plaintexts , get_hot_encode , load_model_from_name , get_rank , get_pow_rank
 from utility import XorLayer , InvSboxLayer
-from utility import METRICS_FOLDER , MODEL_FOLDER
+from utility import METRICS_FOLDER 
 from gmpy2 import mpz,mul
 
 from train_models import model_multi, model_single_task, model_multi_task_t_only, model_multi_task_s_only
 
-import argparse , parse
+import argparse 
 from multiprocessing import Process
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 import pickle 
-import os
+
 
 class Attack:
     def __init__(self,n_experiments = 1000,n_traces = 5000,model_type = 'multi_task', multi_model = False, shared = False):
@@ -68,21 +68,13 @@ class Attack:
                 model_struct , _ , _  = model_single_task(s =  'single_s' in model_type,t = 'single_t' in model_type, alpha_known = alpha_known, summary = False)
                 self.models[byte] = load_model_from_name(model_struct,model_t)  
 
-        # id_model  = 'cb{}ks{}f{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters , pooling_size,dense_blocks,dense_units)
-        
-        
         X_multi = {}
 
         X_multi['inputs_alpha'] = traces[:,:2000]
         X_multi['alpha'] = get_hot_encode(np.array(labels_dict['alpha'][:n_traces],dtype = np.uint8))
         X_multi['inputs_rin'] = traces[:,2000:2000+1000]
         X_multi['inputs_beta'] = traces[:,3000:3000+200]
-         # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
-         # X_profiling_dict['inputs_mj'] = traces[:,3584:3584 + 25 * 16].reshape((n_traces,25,16))
-         # X_profiling_dict['inputs_s_mj'] = traces[:,3984:3984 + 10 * 16].reshape((n_traces,10,16))
-         # X_profiling_dict['inputs_t_mj'] = traces[:,4144:4144 + 10 * 16].reshape((n_traces,10,16))
         X_multi['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
-        # X_multi['inputs_permutations'] = traces[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces,93,16))
         non_permuted_predictions= np.empty((self.n_traces,16,256),dtype = np.float32)
         inv_sbox = InvSboxLayer(name = 'inv_sbox')
         if 'multi_t' in model_type:
@@ -117,21 +109,6 @@ class Attack:
             for byte in range(16):
                 permuted_predictions[elem,self.permutations[elem,byte]] = non_permuted_predictions[elem,byte]
            
-
-
-     
-                
-        # for batch in tqdm(range(self.n_traces// batch_size)):        
-        #     for byte in range(16):
-        #         for byte_perm in range(16):
-        #             self.predictions[byte_perm][batch_size*batch:batch_size*(batch +1)] = tf.add(self.predictions[byte_perm,batch_size*batch:batch_size*(batch +1)], tf.expand_dims(tf.cast(self.permutations[byte,batch_size*batch:batch_size*(batch +1),byte_perm],tf.float32),1) * predictions_non_permuted[byte,batch_size*batch:batch_size*(batch +1)] ) 
-                               
-        # for batch in tqdm(range(self.n_traces// batch_size)):
-        #     for byte in range(16):                   
-        
-        #         self.predictions[byte][batch_size*batch:batch_size*(batch +1)] = XorLayer()([self.predictions[byte,batch_size*batch:batch_size*(batch +1)],self.plaintexts[batch_size*batch:batch_size*(batch +1),byte]])
-                
-   
         for batch in tqdm(range(self.n_traces//batch_size)):
             for byte in range(16):                   
                 
@@ -239,27 +216,23 @@ def run_attack(model_type, multi_model,shared):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trains Neural Network Models')
     parser.add_argument('--SHARED', action="store_true", dest="SHARED",
-                        help='Single task models', default=False)
-    parser.add_argument('--MULTI_MODEL',   action="store_true", dest="MULTI_MODEL", help='Single task xor mdoels', default=False)
-    parser.add_argument('--MULTI',   action="store_true", dest="MULTI", help='Multi learning models', default=False)
-    parser.add_argument('-scenario',   action="store", dest="TRAINING_TYPE", help='choose the input scenario', default='extracted')
-    parser.add_argument('--ALL',   action="store_true", dest="ALL", help='All model types', default=False)
+                        help='Hard parameter sharing', default=False)
+    parser.add_argument('--MULTI_MODEL',   action="store_true", dest="MULTI_MODEL", help='L_reg loss function', default=False)
+
+
         
     args            = parser.parse_args()
   
 
     SHARED        = args.SHARED
     MULTI_MODEL        = args.MULTI_MODEL
-    MULTI = args.MULTI
-    ALL = args.ALL
-    TRAINING_TYPE= args.TRAINING_TYPE
-    print(TRAINING_TYPE)
+
 
     TARGETS = {}
 
+    
 
-
-    MODEL_TYPE = [ 'multi_t','multi_s']
+    MODEL_TYPE = [ 'multi_t','multi_s','multi_t_first','multi_s_first','multi','single_t_first','single_s_first']
 
 
     for model_type in MODEL_TYPE:

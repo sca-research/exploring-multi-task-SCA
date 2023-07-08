@@ -19,10 +19,10 @@ from multiprocessing import Process
 from utility import  METRICS_FOLDER , MODEL_FOLDER, VARIABLE_LIST
 
 # import custom layers
-from utility import MultiLayer , XorLayer , SharedWeightsDenseLayer , Add_Shares , InvSboxLayer
+from utility import MultiLayer , XorLayer , SharedWeightsDenseLayer  , InvSboxLayer
 
 from utility import load_dataset, load_dataset_multi 
-from tqdm import tqdm
+
 
 
 
@@ -40,113 +40,7 @@ os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
 
 
-class CombinedMetric(tf.keras.callbacks.Callback):
-    def __init__(self):
-        super(CombinedMetric, self).__init__()
 
-    def on_epoch_begin(self, epoch, logs={}):
-        return
-
-    def on_epoch_end(self, epoch, logs={}):
-        somme = []
-        for i in range(16):
-            somme.append(logs["output_t_{}_accuracy".format(i)])
-        logs['min_accuracy'] = min(somme)
-        somme = []
-        for i in range(16):
-            somme.append(logs["val_output_t_{}_accuracy".format(i)])
-        logs['val_min_accuracy'] = min(somme)
-
-class Multi_Model(tf.keras.Model):
-    
-    def __init__(self,inputs,outputs):
-        
-        super(Multi_Model, self).__init__(inputs = inputs,outputs = outputs)
-        
-        self.loss_tracker = tf.keras.metrics.Mean(name= 'loss')        
-
-
-    
-    def train_step(self, data):
-        x, y = data
-   
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)  # Forward pass
-            loss = self.compiled_loss(
-                y,
-                y_pred,
-                regularization_losses=self.losses,
-            )
-      
-       
-           
-            losses_t = []
-
-            for byte in range(0,16):
-                losses_t.append(tf.keras.losses.categorical_crossentropy(y['output_t_{}'.format(byte)],y_pred['output_t_{}'.format(byte)])) 
-            mean_t = tf.math.reduce_mean(losses_t)
-
-            
-            for byte in range(0,16):
-                loss = loss + losses_t[byte] + tf.math.pow(losses_t[byte] - mean_t,2) 
-
-            
-            
-           
-            
-                
-        # Compute gradients
-        trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
-
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-        
-
-        # Compute our own metrics
-        self.loss_tracker.update_state(loss)
-        self.compiled_metrics.update_state(y, y_pred)
-        # Return a dict mapping metric names to current value.
-        # Note that it will include the loss (tracked in self.metrics).
-        dict_metrics = {}
-        for m in self.metrics:
-            dict_metrics[m.name] = m.result()
-        dict_metrics['loss'] = self.loss_tracker.result()
-
-        return dict_metrics
-
-    
-    def test_step(self,data):
-        x, y = data
-        # forward pass, no backprop, inference mode 
-        y_pred = self(x, training=False)
-        loss = self.compiled_loss(
-             y,
-             y_pred,
-             regularization_losses=self.losses,
-        )
-         
-       
-        losses_t = []
-
-        for byte in range(0,16):
-            losses_t.append(tf.keras.losses.categorical_crossentropy(y['output_t_{}'.format(byte)],y_pred['output_t_{}'.format(byte)])) 
-        mean_t = tf.math.reduce_mean(losses_t)
-
-        
-        for byte in range(0,16):
-            loss = loss + losses_t[byte] + tf.math.pow(losses_t[byte] - mean_t,2) / 16
-
-       
-        self.loss_tracker.update_state(loss)
-        self.compiled_metrics.update_state(y, y_pred)
-        # Return a dict mapping metric names to current value.
-        # Note that it will include the loss (tracked in self.metrics).
-        dict_metrics = {}
-        for m in self.metrics:
-            dict_metrics[m.name] = m.result()
-        dict_metrics['loss'] = self.loss_tracker.result()
-        return dict_metrics
 
 
 ########################## FULLY EXTRACTED SCENARIO #################################################
@@ -179,10 +73,7 @@ def model_sbox_output( learning_rate=0.001, classes=256 , name ='',summary = Tru
 
 
     s_beta_core = dense_core_shared(block_core,output_units = 256)
-    # s_beta_mj_core = dense_core_shared(block_core,output_units = 256)
 
-    # t_rin_mj_core = dense_core_shared(block_core,output_units = 256)   
-    
     metrics = {}
     for byte in range(16): 
         
@@ -194,10 +85,9 @@ def model_sbox_output( learning_rate=0.001, classes=256 , name ='',summary = Tru
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -246,10 +136,9 @@ def model_sbox_input( learning_rate=0.001, classes=256 , name ='',summary = True
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -260,87 +149,9 @@ def model_sbox_input( learning_rate=0.001, classes=256 , name ='',summary = True
         model.summary()
     return model  , losses  ,metrics  , weights
 
-def model_permutations( learning_rate=0.001, classes=256 , name ='',summary = True):
-    
-    inputs_dict = {}
-    outputs = {}
-    
-
-    inputs_permutations  = Input(shape = (93,16) ,name = 'inputs_permutations')
-    inputs_dict['inputs_permutations'] = inputs_permutations  
-    permutations_core = SharedWeightsDenseLayer(input_dim = inputs_permutations.shape[1],units = 64,shares = 16)(inputs_permutations)      
-    permutations_core = BatchNormalization(axis = 1)(permutations_core)
 
 
-    
-    permutations_core = dense_core_shared(permutations_core,output_units = 16) 
-    metrics = {}
-    for byte in range(16):
 
-        outputs['j_{}'.format(byte)] =  Softmax(name = 'output_j_{}'.format(byte))(permutations_core[:,:,byte])
-        metrics['j_{}'.format(byte)] = 'accuracy'
-
-          
-    losses = {}   
-
-    weights = {}
-    for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
-        weights[k] = 1 if not 'output' in k else 1
-        
-
-
-    model = Model(inputs = inputs_dict,outputs = outputs)    
-
-    if summary:
-        model.summary()
-    return model  , losses  ,metrics  , weights
-
-def model_permutations_single(learning_rate=0.001, classes=256 , name ='',summary = True):
-    inputs_dict = {}
-    outputs = {}
-    
-
-    inputs_permutations  = Input(shape = (93,16) ,name = 'inputs_permutations')
-    inputs_dict['inputs_permutations'] = inputs_permutations  
-    permutations_core = SharedWeightsDenseLayer(input_dim = inputs_permutations.shape[1],units = 64,shares = 16)(inputs_permutations)      
-    permutations_core = BatchNormalization(axis = 1)(permutations_core)
-    permutations_core = Flatten()(permutations_core)
-
-    permutations_core = Dense( 8,activation = 'selu')(permutations_core)      
-    permutations_core = BatchNormalization()(permutations_core)
-
-    permutations_core = Dense( 8,activation = 'selu')(permutations_core)      
-    permutations_core = BatchNormalization()(permutations_core)
-    
-    permutations_core = Dense( 16,activation = 'softmax')(permutations_core)      
-
-    metrics = {}
-
-    outputs['output'] =  permutations_core
-    metrics['output'] = 'accuracy'
-
-          
-    losses = {}   
-
-    weights = {}
-    for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
-        weights[k] = 1 if not 'output' in k else 1
-        
-
-
-    model = Model(inputs = inputs_dict,outputs = outputs)    
-
-    if summary:
-        model.summary()
-    return model  , losses  ,metrics  , weights
 
 
 def model_intermediate_single(learning_rate=0.001, classes=256 , name ='',summary = True):
@@ -366,10 +177,9 @@ def model_intermediate_single(learning_rate=0.001, classes=256 , name ='',summar
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -398,11 +208,11 @@ def model_alpha_single(learning_rate=0.001, classes=256 , name ='',summary = Tru
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
+     
         
 
 
@@ -430,10 +240,9 @@ def model_rin_single(learning_rate=0.001, classes=256 , name ='',summary = True)
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -463,10 +272,9 @@ def model_beta_single(learning_rate=0.001, classes=256 , name ='',summary = True
 
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+       
+        losses[k] = 'categorical_crossentropy'
+ 
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -515,7 +323,6 @@ def model_flat( learning_rate=0.001, classes=256 , name ='',summary = True):
         s_beta = dense_core(block_core,2,8,activated = False)
         t_rin = dense_core(block_core,2,8,activated = False)
         outputs['s_beta_{}'.format(byte)] = Softmax(name = 'output_s_beta_{}'.format(byte))(s_beta)
-        # outputs['output_s_beta_mj_{}'.format(byte)] =  Softmax(name = 'output_s_beta_mj_{}'.format(byte),dtype = tf.float64)(s_beta_mj_core[:,:,byte])
         outputs['t_rin_{}'.format(byte)] =  Softmax(name = 'output_t_rin_{}'.format(byte))(t_rin)
 
     
@@ -529,22 +336,12 @@ def model_flat( learning_rate=0.001, classes=256 , name ='',summary = True):
 
           
     losses = {}   
-    # for k , v in outputs.items():
-    #     if  'sig' in k:
-    #         losses[k] = 'binary_crossentropy'
-    #     elif 'alpha' in k or 'beta' in k or 'rin' in k:
-    #         losses[k] = 'categorical_crossentropy'
 
-
-
-    # model = Multi_Model(inputs = inputs_dict,outputs = outputs)
     weights = {}
     metrics = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+        losses[k] = 'categorical_crossentropy'
+
         weights[k] = 1 if not 'output' in k else 1
         metrics[k] = 'accuracy'
         
@@ -563,18 +360,7 @@ def model_hierarchical( learning_rate=0.001, classes=256 , name ='',summary = Tr
     
     inputs_block  = Input(shape = (93,16) ,name = 'inputs_block')
     inputs_dict['inputs_block'] = inputs_block 
-    # block_core = SharedWeightsDenseLayer(input_dim = inputs_block.shape[1],units = 64,shares = 16)(inputs_block)      
-    # block_core = BatchNormalization(axis = 1)(block_core)
-    # block_core = Flatten()(block_core)
-    
-    # plaintext = Input(shape=(16,256))
-    # inputs_dict['plaintexts'] = plaintext
-    
-    # inputs_permutations  = Input(shape = (93,16) ,name = 'inputs_permutations')
-    # inputs_dict['inputs_permutations'] = inputs_permutations  
-    # permutations_core = SharedWeightsDenseLayer(input_dim = inputs_permutations.shape[1],units = 64,shares = 16)(inputs_permutations)      
-    # permutations_core = BatchNormalization(axis = 1)(permutations_core)
-    
+
     inputs_alpha  = Input(shape = (2000,1) ,name = 'inputs_alpha')
     inputs_dict['inputs_alpha'] = inputs_alpha 
     alpha_core = cnn_core(inputs_alpha,1,[32],16,10,5)
@@ -603,41 +389,22 @@ def model_hierarchical( learning_rate=0.001, classes=256 , name ='',summary = Tr
         s_beta = dense_core(block_core,2,8,activated = False)
         t_rin = dense_core(block_core,2,8,activated = False)
         outputs['s_beta_{}'.format(byte)] = Softmax(name = 'output_s_beta_{}'.format(byte))(s_beta)
-        # outputs['output_s_beta_mj_{}'.format(byte)] =  Softmax(name = 'output_s_beta_mj_{}'.format(byte),dtype = tf.float64)(s_beta_mj_core[:,:,byte])
         outputs['t_rin_{}'.format(byte)] =  Softmax(name = 'output_t_rin_{}'.format(byte))(t_rin)
-        # outputs['output_t_rin_mj_{}'.format(byte)] =  Softmax(name = 'output_t_rin_mj_{}'.format(byte),dtype = tf.float64)(t_rin_mj_core[:,:,byte])
-        # outputs['output_mj_{}'.format(byte)] =  Softmax(name = 'output_mj_{}'.format(byte))(mj_core[:,:,byte])
 
-
- 
-
-        # mj = Add()([mj_from_m_all[:,:,byte]  , mj_core[:,:,byte] ])
-        # # mj = Softmax(name = 'output_mj_{}'.format(byte))(mj)
-        # mj = Softmax()(mj)
-        
-        # beta_mj = XorLayer(name = 'xor_beta_mj_{}'.format(byte))([mj,outputs['output_beta']])
-        # rin_mj = XorLayer(name = 'xor_rin_mj_{}'.format(byte))([mj,outputs['output_rin']])
-
-        # xor_sj_mj =  XorLayer(name = 'xor_sj_mj_{}'.format(byte))([s_mj_core[:,:,byte],mj])
-        # xor_sj_beta_mj =  XorLayer(name = 'xor_sj_beta_mj_{}'.format(byte))([s_beta_mj_core[:,:,byte],beta_mj])
         xor_sj_beta =  XorLayer(name = 'xor_sj_beta_{}'.format(byte))([s_beta,outputs['beta']])
-        # alpha_sj = Add()([xor_sj_mj,xor_sj_beta_mj,xor_sj_beta])
-        
+
         sj = MultiLayer(name = 'multi_s_{}'.format(byte))([xor_sj_beta,outputs['alpha']])
         outputs['sj_{}'.format(byte)] = Softmax(name = 'output_sj_{}'.format(byte))(sj)     
         sj = InvSboxLayer(name = 'inv_s_{}'.format(byte))(sj)
-        #sj = tf.keras.layers.Activation('sigmoid')(sj)
+
         
-        
-        
-        # xor_tj_mj =  XorLayer(name = 'xor_tj_mj_{}'.format(byte))([t_mj_core[:,:,byte],mj])
-        # xor_tj_rin_mj =  XorLayer(name = 'xor_tj_rin_mj_{}'.format(byte))([t_rin_mj_core[:,:,byte],rin_mj])
+
         xor_tj_rin =  XorLayer(name = 'xor_tj_rin_{}'.format(byte))([t_rin,outputs['rin']])
-        # alpha_tj = Add()([xor_tj_mj,xor_tj_rin_mj,xor_tj_rin])
+
         tj = MultiLayer(name = 'multi_t_{}'.format(byte))([xor_tj_rin,outputs['alpha']])
         outputs['tj_{}'.format(byte)] = Softmax(name = 'output_tj_{}'.format(byte))(tj)   
         
-        # tj = tf.keras.layers.Activation('sigmoid')(tj)
+ 
         kj = Add(name = 'add_{}'.format(byte))([tj,sj])
         outputs['kj_{}'.format(byte)] = Softmax(name = 'output_kj_{}'.format(byte))(kj)       
         metrics['kj_{}'.format(byte)] ='accuracy'
@@ -649,21 +416,12 @@ def model_hierarchical( learning_rate=0.001, classes=256 , name ='',summary = Tr
 
           
     losses = {}   
-    # for k , v in outputs.items():
-    #     if  'sig' in k:
-    #         losses[k] = 'binary_crossentropy'
-    #     elif 'alpha' in k or 'beta' in k or 'rin' in k:
-    #         losses[k] = 'categorical_crossentropy'
 
-
-
-    # model = Multi_Model(inputs = inputs_dict,outputs = outputs)
     weights = {}
     for k , v in outputs.items():
-        if not 'sig' in k:
-            losses[k] = 'categorical_crossentropy'
-        else:
-            losses[k] = 'binary_crossentropy'
+        
+        losses[k] = 'categorical_crossentropy'
+      
         weights[k] = 1 if not 'output' in k else 1
         
 
@@ -748,18 +506,12 @@ def train_model(model_type,target_byte):
     n_traces = 450000
     
     model_t = 'model_{}'.format(model_type)   
-    if model_type == 'hierarchical_now': 
+    if model_type == 'hierarchical': 
         model_t = model_t + '_' + target_byte
         model , losses , metrics , weights  = model_hierarchical()
     if model_type == 'flat': 
         model_t = model_t + '_' + target_byte
         model , losses , metrics , weights  = model_flat()
-    # elif model_type == 'sbox_input':       
-    #     model , losses , metrics , weights  = model_sbox_input()       
-    # elif model_type == 'sbox_output':       
-    #     model , losses , metrics , weights  = model_sbox_output()  
-    # elif model_type == 'permutations':       
-    #     model , losses , metrics , weights  = model_permutations()  
     elif model_type == 'alpha':       
         model , losses , metrics , weights  = model_alpha_single()   
     elif model_type == 'rin':       
@@ -769,9 +521,6 @@ def train_model(model_type,target_byte):
     elif model_type == 't1^rin' or  model_type == 's1^beta':   
         model_t = model_t + '_' + target_byte
         model , losses , metrics , weights  = model_intermediate_single()  
-    elif model_type == 'p':   
-        model_t = model_t + '_' + target_byte
-        model , losses , metrics , weights  = model_permutations_single()  
     else:
         print('You fucked up')
     
@@ -828,37 +577,30 @@ if __name__ == "__main__":
     TARGETS = {}
     model_types = []
     if HIERARCHICAL:
-        model_types  = ['hierarchical_now']
+        model_types  = ['hierarchical']
     elif FLAT:
         model_types  = ['flat']
     elif SINGLE:
-        model_types = ['t1^rin']
+        model_types = ['alpha','rin','beta','t1^rin','s1^beta']
 
     else:
         print('No training mode selected')
 
-    # for model_random in tqdm(range(25)):
-    #     convolution_blocks = np.random.randint(1,3)
-    #     kernel_size = sorted(np.random.randint(4,32,size = convolution_blocks))       
-    #     filters = np.random.randint(3,16)
-    #     pooling_size = np.random.randint(2,5)
-    #     dense_blocks = np.random.randint(1,5)
-    #     dense_units = np.random.randint(64,512)
+
 
     for model_type in model_types:
-        if model_type == 'hierarchical_now' or model_type == 'flat':
+        if model_type == 'hierarchical' or model_type == 'flat':
             
             process_eval = Process(target=train_model, args=(model_type,'all'))
             process_eval.start()
             process_eval.join()  
         else:
             for target_byte in VARIABLE_LIST[model_type]:
-                print(target_byte)
+             
                 process_eval = Process(target=train_model, args=(model_type,target_byte))
                 process_eval.start()
                 process_eval.join()  
-                if 't002' in target_byte:
-                    break                                  
+                                
 
 
     print("$ Done !")

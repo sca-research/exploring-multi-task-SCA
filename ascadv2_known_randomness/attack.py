@@ -1,17 +1,17 @@
 from utility import read_from_h5_file , adapt_plaintexts, get_rank_list_from_prob_dist , get_hot_encode , load_model_from_name , get_rank , get_pow_rank
 from utility import XorLayer , InvSboxLayer, MultiLayer
-from utility import METRICS_FOLDER , MODEL_FOLDER
+from utility import METRICS_FOLDER 
 from gmpy2 import mpz,mul
 
-from train_models import model_hierarchical, model_flat , model_alpha_single , model_rin_single , model_beta_single, model_intermediate_single, model_permutations_single
+from train_models import model_hierarchical, model_flat , model_alpha_single , model_rin_single , model_beta_single, model_intermediate_single
 
-import argparse , parse
+import argparse 
 from multiprocessing import Process
 from tqdm import tqdm
 import numpy as np
 import tensorflow as tf
 import pickle 
-import os
+
 
 class Attack:
     def __init__(self,n_experiments = 1000,n_traces = 45000,model_type = 'multi_task'):
@@ -49,8 +49,7 @@ class Attack:
         
         
 
-        # id_model  = 'cb{}ks{}f{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters , pooling_size,dense_blocks,dense_units)
-      
+ 
         if model_type == 'hierarchical':
             multi_name = 'model_hierarchical_now_all2.h5'
             X_multi = {}
@@ -60,10 +59,7 @@ class Attack:
             X_multi['inputs_alpha'] = traces[:,:2000]
             X_multi['inputs_rin'] = traces[:,2000:2000+1000]
             X_multi['inputs_beta'] = traces[:,3000:3000+200]
-             # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
-             # X_profiling_dict['inputs_mj'] = traces[:,3584:3584 + 25 * 16].reshape((n_traces,25,16))
-             # X_profiling_dict['inputs_s_mj'] = traces[:,3984:3984 + 10 * 16].reshape((n_traces,10,16))
-             # X_profiling_dict['inputs_t_mj'] = traces[:,4144:4144 + 10 * 16].reshape((n_traces,10,16))
+
             X_multi['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
             X_multi['inputs_permutations'] = traces[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces,93,16))
             predictions = self.model.predict(X_multi,batch_size  = 200)
@@ -77,17 +73,17 @@ class Attack:
             
             
 
-            #array_predictions_p = np.empty((16,self.n_traces,16),dtype = np.float32)
+          
             predictions_non_permuted = np.empty((16,self.n_traces,256),dtype = np.float32)
             for byte in range(16):
-                #array_predictions_p[byte] = predictions['j_{}'.format(byte)]
+             
                 predictions_non_permuted[byte] = predictions['kj_{}'.format(byte)]
                 predictions_s_beta[byte] = predictions['s_beta_{}'.format(byte)]
                 predictions_t_rin[byte] = predictions['t_rin_{}'.format(byte)]
 
             predictions_non_permuted = np.swapaxes(predictions_non_permuted,1,0)
             predictions_non_permuted = np.swapaxes(predictions_non_permuted,2,1)
-            #predictions_p = np.swapaxes(array_predictions_p,1,0)
+           
             
             predictions = tf.matmul(predictions_non_permuted,permutations)
                          
@@ -104,12 +100,7 @@ class Attack:
             X_multi['inputs_alpha'] = traces[:,:2000]
             X_multi['inputs_rin'] = traces[:,2000:2000+1000]
             X_multi['inputs_beta'] = traces[:,3000:3000+200]
-             # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
-             # X_profiling_dict['inputs_mj'] = traces[:,3584:3584 + 25 * 16].reshape((n_traces,25,16))
-             # X_profiling_dict['inputs_s_mj'] = traces[:,3984:3984 + 10 * 16].reshape((n_traces,10,16))
-             # X_profiling_dict['inputs_t_mj'] = traces[:,4144:4144 + 10 * 16].reshape((n_traces,10,16))
             X_multi['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
-            # X_multi['inputs_permutations'] = traces[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces,93,16))
             predictions = self.model.predict(X_multi,batch_size  = 200)
             predictions_beta = predictions['beta']
             
@@ -121,10 +112,10 @@ class Attack:
             
             
 
-            #array_predictions_p = np.empty((16,self.n_traces,16),dtype = np.float32)
+          
             predictions_non_permuted = np.empty((16,self.n_traces,256),dtype = np.float32)
             for byte in range(16):
-                #array_predictions_p[byte] = predictions['j_{}'.format(byte)]
+             
                 
                 predictions_s_beta[byte] = predictions['s_beta_{}'.format(byte)]
                 predictions_t_rin[byte] = predictions['t_rin_{}'.format(byte)]
@@ -176,7 +167,7 @@ class Attack:
             predictions_beta = model_beta.predict({'inputs_beta':X_profiling_dict['inputs_beta']})['output']
             predictions_t_rin =np.empty((16,self.n_traces,256),dtype = np.float32)
             predictions_s_beta = np.empty((16,self.n_traces,256),dtype = np.float32)
-            # predictions_p = np.empty((self.n_traces,16,16),dtype = np.float32)
+    
             for byte in range(16):
                 byte_name = '0{}'.format('0' + str(byte+1) if byte+1 <10 else str(byte+1))
                 model_s , _ , _ , _  = model_intermediate_single()  
@@ -187,10 +178,6 @@ class Attack:
                 model_t = load_model_from_name(model_t, 'model_t1^rin_t{}^rin2.h5'.format(byte_name))
                 predictions_t_rin[byte] = model_t.predict({'inputs_block':X_profiling_dict['inputs_block']})['output']
                 
-                # model_perm , _ , _ , _  = model_permutations_single() 
-                # model_perm = load_model_from_name(model_perm, 'model_p_p{}2.h5'.format(byte_name))
-                # predictions_p[:,byte] = model_perm.predict({'inputs_permutations':X_profiling_dict['inputs_permutations']})['output']
-
 
             predictions_non_permuted = np.empty((n_traces,256,16),dtype = np.float32)
             
@@ -235,25 +222,20 @@ class Attack:
         acc_k = 0
         acc_t_rin = 0
         acc_s_beta =0 
-        acc_p = 0
-        # predictions_p = np.swapaxes(predictions_p,1,0)
-        
+
         for byte in range(16):
             rank , acc , score , _  = get_rank_list_from_prob_dist(self.predictions[byte],np.repeat(self.subkeys[byte],self.predictions.shape[1]))
             acc_k += acc
-            print(np.median(score))
-           
-            # _ , acc , _, _  = get_rank_list_from_prob_dist(predictions_s_beta[byte],np.array(labels_dict['s1^beta'],dtype = np.uint8)[:,byte])
-            # acc_s_beta+=acc 
-            # _ , acc , _, _  = get_rank_list_from_prob_dist(predictions_t_rin[byte],np.array(labels_dict['t1^rin'],dtype = np.uint8)[:,byte])
-            # acc_t_rin+=acc 
-            
-            # _ , acc , _, _  = get_rank_list_from_prob_dist(predictions_p[byte],np.array(labels_dict['p'],dtype = np.uint8)[:,byte])
-            # acc_p+=acc 
+                  
+            _ , acc , _, _  = get_rank_list_from_prob_dist(predictions_s_beta[byte],np.array(labels_dict['s1^beta'],dtype = np.uint8)[:,byte])
+            acc_s_beta+=acc 
+            _ , acc , _, _  = get_rank_list_from_prob_dist(predictions_t_rin[byte],np.array(labels_dict['t1^rin'],dtype = np.uint8)[:,byte])
+            acc_t_rin+=acc 
+
         print('Average accuracy k ',acc_k/16)
-        # print('Average accuracy s^beta ',acc_s_beta/16)
-        # print('Average accuracy t_rin ',acc_t_rin/16)
-        # print('Average accuracy p ',acc_p/16)
+        print('Average accuracy s^beta ',acc_s_beta/16)
+        print('Average accuracy t_rin ',acc_t_rin/16)
+    
         
 
 
