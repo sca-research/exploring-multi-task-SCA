@@ -186,8 +186,7 @@ class Attack:
 
    
 def run_attack(training_type,model_type):                
-    attack = Attack(training_type,model_type = model_type)
-    
+    attack = Attack(training_type,model_type = model_type)    
     attack.run()
     
 if __name__ == "__main__":
