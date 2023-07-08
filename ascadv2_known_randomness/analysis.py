@@ -21,7 +21,7 @@ def get_snr(traces,labels,classes = 256):
     snr.fit_u(traces,labels)
     return snr.get_snr()
 
-n_traces  = 45000
+n_traces  = 200000
 
 
 
@@ -30,7 +30,7 @@ traces, labels_dict = read_from_h5_file(n_traces = n_traces ,dataset = 'training
 
 
 
-for target in ['m']:
+for target in ['s1^m']:
     snr = get_snr(traces,np.array(labels_dict[target])[:n_traces])
     
     # order = np.argsort(snr[0])[-200:]

@@ -1,8 +1,8 @@
-from utility import read_from_h5_file  , get_hot_encode , load_model_from_name , get_rank 
-from utility import XorLayer 
+from utility import read_from_h5_file  , get_hot_encode , load_model_from_name , get_rank , get_pow_rank, get_rank_list_from_prob_dist
+from utility import XorLayer , InvSboxLayer
 from utility import METRICS_FOLDER , MODEL_FOLDER
-from train_models import model_single_task_xor    , model_multi_task, model_single_task_twin
-
+from train_models import model_multi_task_single_target,model_single_task,model_multi_task_multi_target ,model_multi_task_single_target_multi_shares   , model_multi_task_single_target_one_shared_mask, model_multi_task_single_target_not_shared,model_multi_task_single_target_one_shared_mask_shared_branch
+from gmpy2 import mpz,mul
 import argparse , parse
 from multiprocessing import Process
 from tqdm import tqdm
@@ -15,186 +15,210 @@ import os
 
 
 class Attack:
-    def __init__(self,convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units,n_experiments = 1000,n_traces = 10000,model_type = 'multi_task'):
+    def __init__(self,training_type, n_experiments = 1000,n_traces = 10000,model_type = False):
         
         self.models = {}
         self.n_traces = n_traces
 
-        id_model  = 'cb{}ks{}f{}s{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units)
+        if training_type == 'single_task_subin' or training_type == 'single_task_subout':
+            for byte in range(2,16):
+                model = model_single_task(input_length = 250000,summary = False)   
+                model = load_model_from_name(model,'model_{}_{}.h5'.format(training_type,byte))
+                self.models[byte] = model
+            
+            target = 's' if 'subout' in training_type else 't'
+            self.name = training_type
 
 
-        if 'multi_task' in model_type:
-            multi_name = 'model_{}_all_{}.h5'.format(model_type,id_model) 
-            model_struct = model_multi_task(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)
-            self.models['all'] = load_model_from_name(model_struct,multi_name)  
+        elif training_type == 'multi_task_single_target':
+    
+            model = model_multi_task_single_target(multi_model = model_type,input_length = 250000)     
+            
+            target = 's'
+  
+        elif training_type == 'multi_task_single_target_not_shared':
+    
+            model = model_multi_task_single_target_not_shared(multi_model = model_type,input_length = 250000)  
+            target = 's'
+
+        elif training_type == 'multi_task_single_target_one_shared_mask':
+            
+            model = model_multi_task_single_target_one_shared_mask(multi_model = model_type,input_length = 250000)   
+            target = 't'               
+        elif training_type == 'multi_task_single_target_one_shared_mask_cross':
+            
+            model = model_multi_task_single_target_one_shared_mask(cross_model = True,input_length = 250000)   
+            target = 't'               
+
+            
+            
+        elif training_type == 'multi_task_single_target_one_shared_mask_shared_branch':
+            
+            model = model_multi_task_single_target_one_shared_mask_shared_branch(multi_model = model_type,input_length = 250000)    
+            target = 't'                   
+    
+        elif training_type == 'multi_task_multi_target':
+            
+            model = model_multi_task_multi_target(multi_model = model_type,input_length = 250000)   
+            target = 't'                    
+                        
         else:
-            for byte in range(6,7):
-                name = 'model_{}_{}_{}.h5'.format(model_type,byte,id_model) 
-                if 'xor' in name:
-                    model_struct = model_single_task_xor(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)                
-                else:
-                    model_struct = model_single_task_twin(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)  
-                self.models[byte] = load_model_from_name(model_struct,name) 
+            print('Some error here')       
+
 
         self.n_experiments = n_experiments
         self.powervalues = {}
 
         traces , labels_dict, metadata  = read_from_h5_file(n_traces = self.n_traces,dataset = 'attack',load_plaintexts = True)
-        traces = np.expand_dims(traces,2)
+        
         
         self.correct_guesses = {}
         self.history_score = {}
-        self.traces_per_exp = 1000
-        self.predictions= np.zeros((self.n_traces,256),dtype =np.float32)
-        plaintexts = np.array(metadata['plaintexts'],dtype = np.uint8)[:self.n_traces,6]
+        self.traces_per_exp = 100
+        
+        plaintexts = np.array(metadata['plaintexts'],dtype = np.uint8)[:self.n_traces]
         self.plaintexts = get_hot_encode(plaintexts)
         batch_size = self.n_traces//10
   
         
         
-        X = {}
-        X['traces'] = traces
-         
-        predictions_p= np.zeros((self.n_traces,256),dtype =np.float32)
-        if 'multi_task' in model_type:
-            all_predictions = {}         
-            all_predictions = self.models['all'].predict(X,verbose=1 ,batch_size = 250)    
-            
-            predictions_p = all_predictions['output_t_6']
-        else:
-            predictions_p = self.models[6].predict(X,verbose=1 ,batch_size = 250)['output']   
-  
-          
-        for batch in tqdm(range(self.n_traces// batch_size)):
-            self.predictions[batch_size*batch:batch_size*(batch +1)] = XorLayer()([predictions_p[batch_size*batch:batch_size*(batch +1)],self.plaintexts[batch_size*batch:batch_size*(batch +1)]])
+     
+        master_key = [0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88,0x99,0xAA,0xBB,0xCC,0xDD,0xEE,0xFF]
+        self.subkeys = master_key
 
+        self.powervalues = np.expand_dims(traces,2)
+        predictions = {}
+        if 'single_task' in training_type:
+            for byte in range(2,16):
+                predictions['output_{}'.format(byte)] = self.models[byte].predict({'traces':self.powervalues})['output']
+        else:
+            self.name = '{}_{}'.format('model' if not model_type else 'multi_model',training_type)
+            model = load_model_from_name(model, self.name + '_all.h5')
+
+            predictions = model.predict({'traces':self.powervalues})
+        self.predictions = np.empty((self.n_traces, 14,256),dtype =np.float32) 
+        batch_size = 1000
         
-        self.subkeys = 0x66
+        xor_op = XorLayer(name = 'xor')
+        inv_op = InvSboxLayer(name = 'iinv')
+        for batch in range(0,self.n_traces//batch_size):
+            print('Batch of prediction {} / {}'.format(batch + 1,self.n_traces//batch_size))
+            for byte in tqdm(range(2,16)):                  
+                    if target == 't': 
+                        self.predictions[batch*batch_size:(batch+1)*batch_size,byte-2] = xor_op([predictions['output_{}'.format(byte)][batch*batch_size:(batch+1)*batch_size],self.plaintexts[batch*batch_size:(batch+1)*batch_size,byte]])
+                    else:
+                        inv_pred = inv_op(predictions['output_{}'.format(byte)][batch*batch_size:(batch+1)*batch_size])
+                        self.predictions[batch*batch_size:(batch+1)*batch_size,byte-2] = xor_op([inv_pred,self.plaintexts[batch*batch_size:(batch+1)*batch_size,byte]])
+                    
+        for byte in range(14):
+            _ , acc , _, _  = get_rank_list_from_prob_dist(self.predictions[:,byte],np.repeat(self.subkeys[byte+2],self.predictions.shape[0]))
+            print('Accuracy for byte {}'.format(byte + 2 ), acc)   
         
-        
-    def run(self,typ,id_model,print_logs = False):
-       history_score = {}
-       for experiment in tqdm(range(self.n_experiments)):
-           if print_logs:
-               print('====================')
-               print('Experiment {} '.format(experiment))
-           history_score[experiment] = {}
-           history_score[experiment]['total_rank'] =  [] 
-           subkeys_guess = {}
-           subkeys_guess = np.zeros(256,)            
+    def run(self,print_logs = False):
+    
+       for experiment in range(self.n_experiments):
+           print('====================')
+           print('Experiment {} '.format(experiment))
+           self.history_score[experiment] = {}
+           self.history_score[experiment]['total_rank'] =  [] 
+           self.subkeys_guess = {}
+           for i in range(2,16):
+               self.subkeys_guess[i] = np.zeros(256,)            
            
-            
+               self.history_score[experiment][i] = []
            traces_order = np.random.permutation(self.n_traces)[:self.traces_per_exp] 
            count_trace = 1
            
            for trace in traces_order:
+               
+               
+               
+               recovered  = {}
                all_recovered = True
                ranks = {}
-               if print_logs:
-                   print('========= Trace {} ========='.format(count_trace))
-               rank_string = ""
 
-               subkeys_guess += np.log(self.predictions[trace] + 1e-36)
-             
+               print('========= Trace {} ========='.format(count_trace))
+               rank_string = ""
+               total_rank = mpz(1)
                
-               ranks = get_rank(subkeys_guess,self.subkeys)
-               rank_string += "| rank for byte {} : {} | \n".format('6',ranks)
-               if np.argmax(subkeys_guess) == self.subkeys:
-                    all_recovered = True                        
-               else:                    
-                    all_recovered = False                
+               
+               for byte in range(2,16):
+                   self.subkeys_guess[byte] += np.log(self.predictions[trace][byte-2] + 1e-36)
+                  
+                   ranks[byte-2] = get_rank(self.subkeys_guess[byte],self.subkeys[byte])
+                   self.history_score[experiment][byte].append(ranks[byte-2])
+                   total_rank = mul(total_rank,mpz(ranks[byte-2]))
+                   rank_string += "| rank for byte {} : {} | \n".format(byte,ranks[byte-2])
+                   if np.argmax(self.subkeys_guess[byte]) == self.subkeys[byte]:
+                       recovered[byte] = True                        
+                   else:
+                       recovered[byte] = False
+                       all_recovered = False                
               
-               history_score[experiment]['total_rank'].append(ranks)
-               if print_logs:
-                   print(rank_string)
-                   print('Total rank 2^{}'.format( history_score[experiment]['total_rank'][-1]))
-                   print('\n')
-               if all_recovered:  
-                   if print_logs:
-                       
-                       print('All bytes Recovered at trace {}'.format(count_trace))
+               self.history_score[experiment]['total_rank'].append(get_pow_rank(total_rank))
+               print(rank_string)
+               print('Total rank 2^{}'.format( self.history_score[experiment]['total_rank'][-1]))
+               print('\n')
+               if all_recovered:                    
+                   print('All bytes Recovered at trace {}'.format(count_trace))
                    
                    for elem in range(count_trace,self.traces_per_exp):
-                       history_score[experiment]['total_rank'].append(1)
+                       for i in range(2,16):
+                           self.history_score[experiment][i].append(ranks[i-2])
+                       self.history_score[experiment]['total_rank'].append(0)
                    break
                    count_trace += 1
                else:
                    count_trace += 1
-               if print_logs:
-                   print('\n')
+               print('\n')
        array_total_rank = np.empty((self.n_experiments,self.traces_per_exp))
        for i in range(self.n_experiments):
            for j in range(self.traces_per_exp):
-               array_total_rank[i][j] =  history_score[i]['total_rank'][j] 
+               array_total_rank[i][j] =  self.history_score[i]['total_rank'][j] 
        whe = np.where(np.mean(array_total_rank,axis=0) < 2)[0]
-       print(typ)
+       print(np.mean(array_total_rank,axis=0))
        print('GE < 2 : ',(np.min(whe) if whe.shape[0] >= 1 else self.traces_per_exp))        
 
-       file = open(METRICS_FOLDER + 'history_attack_experiments_{}_{}_{}'.format(typ,id_model,self.n_experiments),'wb')
-       pickle.dump(history_score,file)
+       file = open(METRICS_FOLDER + 'history_attack_experiments_{}_{}'.format(self.name,self.n_experiments),'wb')
+       pickle.dump(self.history_score,file)
        file.close()
 
 
    
-def run_attack(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units,model_type):                
-    attack = Attack(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units,model_type = model_type)
-    id_model  = 'cb{}ks{}f{}s{}ps{}db{}du{}.h5'.format(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units)
-    attack.run('{}'.format(model_type),id_model)
+def run_attack(training_type,model_type):                
+    attack = Attack(training_type,model_type = model_type)
+    
+    attack.run()
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trains Neural Network Models')
-    parser.add_argument('--XOR',   action="store_true", dest="SINGLE_TASK_XOR", help='Adding the masks to the labels', default=False)
-    parser.add_argument('--TWIN',   action="store_true", dest="SINGLE_TASK_TWIN", help='Adding the masks to the labels', default=False)
+    parser.add_argument('--MULTI_MODEL', action="store_true", dest="MULTI_MODEL",
+                        help='Classical training of the intermediates', default=False)
+    parser.add_argument('--SINGLE',   action="store_true", dest="SINGLE", help='Adding the masks to the labels', default=False)
     parser.add_argument('--MULTI',   action="store_true", dest="MULTI", help='Adding the masks to the labels', default=False)
-    #parser.add_argument('-scenario',   action="store", dest="TRAINING_TYPE", help='Adding the masks to the labels', default='extracted')
-    parser.add_argument('--ALL',   action="store_true", dest="ALL", help='Adding the masks to the labels', default=False)
-        
     args            = parser.parse_args()
   
 
-   
-    SINGLE_TASK_XOR        = args.SINGLE_TASK_XOR
-    SINGLE_TASK_TWIN = args.SINGLE_TASK_TWIN
+    MULTI_MODEL        = args.MULTI_MODEL
+    SINGLE        = args.SINGLE
     MULTI = args.MULTI
-    ALL = args.ALL
 
+ 
 
     TARGETS = {}
+    if SINGLE:
+        training_types = ['multi_task_single_target']
 
-    if SINGLE_TASK_XOR:
-        MODEL_TYPE = ['single_task_xor']
-    elif SINGLE_TASK_TWIN:
-        MODEL_TYPE = ['single_task_twin']
     elif MULTI:
-        MODEL_TYPE = ['multi_task']
-    elif ALL:
-        MODEL_TYPE = ['single_task_xor','single_task_twin','multi_task']
+        training_types = ['single_task_subin','single_task_subout']
     else:
         print('No training mode selected')
 
-    for model_type in MODEL_TYPE:
-        for model_name in os.listdir(MODEL_FOLDER):
-            byte = 'all' if 'multi' in model_name else '6'
-            multi_task =  'model_{}_{}'.format(model_type,byte)
-      
-            if not multi_task  in model_name :
-                continue
-            
-            format_string = multi_task + '_cb{}ks{}f{}s{}ps{}db{}du{}.h5'
-            parsed = parse.parse(format_string,model_name)
-            convolution_blocks = int(parsed[0])
-            kernel_size_list = parsed[1][1:-1]
-            kernel_size_list = kernel_size_list.split(',')   
-            kernel_size = [int(elem) for elem in kernel_size_list]
-            filters = int(parsed[2])
-            strides = int(parsed[3])
-            pooling_size = int(parsed[4])
-            dense_blocks = int(parsed[5])
-            dense_units = int(parsed[6])
-            process_eval = Process(target=run_attack, args=(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units,model_type))
-            process_eval.start()
-            process_eval.join()
-                            
+
+    for training_type in training_types:
+        process_eval = Process(target=run_attack, args=(training_type,MULTI_MODEL))
+        process_eval.start()
+        process_eval.join()   
             
             
     

@@ -1,9 +1,9 @@
-from utility import read_from_h5_file , adapt_plaintexts , get_hot_encode , load_model_from_name , get_rank , get_pow_rank
-from utility import XorLayer 
+from utility import read_from_h5_file, get_rank_list_from_prob_dist , adapt_plaintexts , get_hot_encode , load_model_from_name , get_rank , get_pow_rank
+from utility import XorLayer , InvSboxLayer
 from utility import METRICS_FOLDER , MODEL_FOLDER
 from gmpy2 import mpz,mul
 
-from train_models import model_hierarchical
+from train_models import model_multi, model_single_task, model_multi_task_t_only, model_multi_task_s_only
 
 import argparse , parse
 from multiprocessing import Process
@@ -14,9 +14,10 @@ import pickle
 import os
 
 class Attack:
-    def __init__(self,n_experiments = 1000,n_traces = 5000,model_type = 'multi_task'):
-        
+    def __init__(self,n_experiments = 1000,n_traces = 5000,model_type = 'multi_task', multi_model = False, shared = False):
+        self.name ='{}_{}_{}'.format('multi_model' if multi_model else 'model',model_type, 'shared' if shared else 'nshared')
         self.models = {}
+        print(model_type)
         self.n_experiments = n_experiments
         self.n_traces = n_traces
         self.powervalues = {}
@@ -41,19 +42,39 @@ class Attack:
         
         self.plaintexts = tf.cast(get_hot_encode(adapt_plaintexts(plaintexts,keys,self.key)),tf.float32)
         batch_size = self.n_traces//10
-  
-
-        
-        
+        if 'multi' == model_type:
+            model_t = '{}_{}_{}2.h5'.format('multi_model' if multi_model else 'model',model_type, 'shared' if shared else 'nshared')
+            model_struct , _ , _  = model_multi(summary = False,shared = shared,multi_model = multi_model)
+            self.models['all'] = load_model_from_name(model_struct,model_t)  
+            alpha_known = False
+        elif 'multi_t' in model_type:
+            model_t = '{}_{}_{}2.h5'.format('multi_model' if multi_model else 'model',model_type, 'shared' if shared else 'nshared')
+            known_alpha = 'first' in model_type
+            model_struct , _ , _  = model_multi_task_t_only(shared = shared,multi_model = multi_model,known_alpha = known_alpha,summary = False)
+            self.models['all'] = load_model_from_name(model_struct,model_t)  
+            alpha_known = True
+        elif 'multi_s' in model_type:
+            known_alpha = 'first' in model_type
+            model_t = '{}_{}_{}2.h5'.format('multi_model' if multi_model else 'model',model_type, 'shared' if shared else 'nshared')
+            model_struct , _ , _  = model_multi_task_s_only(shared = shared,multi_model = multi_model,known_alpha = known_alpha,summary = False)
+            self.models['all'] = load_model_from_name(model_struct,model_t)  
+            alpha_known = True
+                                   
+        else:   
+            alpha_known = 'first' in model_type
+            for byte in range(16):
+                
+                model_t = 'model_{}_nshared{}2.h5'.format(model_type,'_'+str(byte) if not (byte is None) else '')
+                model_struct , _ , _  = model_single_task(s =  'single_s' in model_type,t = 'single_t' in model_type, alpha_known = alpha_known, summary = False)
+                self.models[byte] = load_model_from_name(model_struct,model_t)  
 
         # id_model  = 'cb{}ks{}f{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters , pooling_size,dense_blocks,dense_units)
-      
-        multi_name = 'model.h5'
-        X_multi = {}
-        model_struct , _ , _  = model_hierarchical()
-        self.models['all'] = load_model_from_name(model_struct,multi_name)  
         
+        
+        X_multi = {}
+
         X_multi['inputs_alpha'] = traces[:,:2000]
+        X_multi['alpha'] = get_hot_encode(np.array(labels_dict['alpha'][:n_traces],dtype = np.uint8))
         X_multi['inputs_rin'] = traces[:,2000:2000+1000]
         X_multi['inputs_beta'] = traces[:,3000:3000+200]
          # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
@@ -62,11 +83,39 @@ class Attack:
          # X_profiling_dict['inputs_t_mj'] = traces[:,4144:4144 + 10 * 16].reshape((n_traces,10,16))
         X_multi['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
         # X_multi['inputs_permutations'] = traces[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces,93,16))
-        predictions = self.models['all'].predict(X_multi,batch_size  = 200)
+        non_permuted_predictions= np.empty((self.n_traces,16,256),dtype = np.float32)
+        inv_sbox = InvSboxLayer(name = 'inv_sbox')
+        if 'multi_t' in model_type:
+            predictions = self.models['all'].predict(X_multi,batch_size  = 200)
+            for byte in range(16):  
+                tj = predictions['output_{}'.format(byte)]             
+                non_permuted_predictions[:,byte] = tj
+        elif 'multi_s' in model_type:
+            predictions = self.models['all'].predict(X_multi,batch_size  = 200)
+            for byte in range(16):
+                sj = predictions['output_{}'.format(byte)]
+                tj = inv_sbox(sj)
+                non_permuted_predictions[:,byte] = tj
+        elif 'multi' in model_type:
+            predictions = self.models['all'].predict(X_multi,batch_size  = 200)
+            for byte in range(16):
+                sj = predictions['output_sj_{}'.format(byte)]
+                tj = predictions['output_tj_{}'.format(byte)]
+                tj *= inv_sbox(sj)
+                non_permuted_predictions[:,byte] = tj        
+        else:
+            for byte in range(16):
+                predictions = self.models[byte].predict(X_multi,batch_size = 200)
+                x = predictions['output']
+                if 'single_s' in model_type:
+                    tj = inv_sbox(x)
+                else:
+                    tj = x
+                non_permuted_predictions[:,byte] = tj            
         permuted_predictions= np.empty((self.n_traces,16,256),dtype = np.float32)
         for elem in range(self.n_traces):
             for byte in range(16):
-                permuted_predictions[elem,self.permutations[elem,byte]] = predictions['output_tj_{}'.format(byte)][elem]
+                permuted_predictions[elem,self.permutations[elem,byte]] = non_permuted_predictions[elem,byte]
            
 
 
@@ -94,8 +143,14 @@ class Attack:
         
         
         
-
-
+    def evaluate(self):
+        accuracies = []
+        for byte in range(16):
+            _ , acc , _, _  = get_rank_list_from_prob_dist(self.predictions[byte],np.repeat(self.subkeys[byte],self.predictions.shape[1]))
+            accuracies.append(acc)
+        print(min(accuracies))
+        print(max(accuracies))
+        print(np.mean(accuracies))
         
     def run(self,print_logs = False):
        history_score = {}
@@ -157,17 +212,7 @@ class Attack:
                    count_trace += 1
                if print_logs:
                    print('\n')
-           if not all_recovered:
-                 for fake_experiment in range(self.n_experiments):
-                     history_score[fake_experiment] = {}
-                     history_score[fake_experiment]['total_rank'] =  [] 
-                     for byte in range(16):
-                         history_score[fake_experiment][byte] = []
-                     for elem in range(self.traces_per_exp):
-                         for byte in range(16):
-                             history_score[fake_experiment][byte].append(128)
-                         history_score[fake_experiment]['total_rank'].append(128)
-                 break
+
        array_total_rank = np.empty((self.n_experiments,self.traces_per_exp))
        for i in range(self.n_experiments):
            for j in range(self.traces_per_exp):
@@ -175,25 +220,27 @@ class Attack:
        whe = np.where(np.mean(array_total_rank,axis=0) < 2)[0]
      
        print('GE < 2 : ',(np.min(whe) if whe.shape[0] >= 1 else self.traces_per_exp))        
-
-       file = open(METRICS_FOLDER + 'history_attack_experiments_propagation_{}'.format(self.n_experiments),'wb')
+       print('GE 1T : ',np.mean(array_total_rank,axis = 0)[0])
+       file = open(METRICS_FOLDER + 'history_attack_experiments_{}_{}'.format(self.name,self.n_experiments),'wb')
        pickle.dump(history_score,file)
        file.close()
-
+       
 
                 
    
-def run_attack():                
-    attack = Attack()
+def run_attack(model_type, multi_model,shared):                
+    attack = Attack(model_type=model_type, shared = shared, multi_model = multi_model)
     attack.run()
+    attack.evaluate()
+
     
     
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trains Neural Network Models')
-    parser.add_argument('--SINGLE_TASK', action="store_true", dest="SINGLE_TASK",
+    parser.add_argument('--SHARED', action="store_true", dest="SHARED",
                         help='Single task models', default=False)
-    parser.add_argument('--SINGLE_TASK_XOR',   action="store_true", dest="SINGLE_TASK_XOR", help='Single task xor mdoels', default=False)
+    parser.add_argument('--MULTI_MODEL',   action="store_true", dest="MULTI_MODEL", help='Single task xor mdoels', default=False)
     parser.add_argument('--MULTI',   action="store_true", dest="MULTI", help='Multi learning models', default=False)
     parser.add_argument('-scenario',   action="store", dest="TRAINING_TYPE", help='choose the input scenario', default='extracted')
     parser.add_argument('--ALL',   action="store_true", dest="ALL", help='All model types', default=False)
@@ -201,8 +248,8 @@ if __name__ == "__main__":
     args            = parser.parse_args()
   
 
-    SINGLE_TASK        = args.SINGLE_TASK
-    SINGLE_TASK_XOR        = args.SINGLE_TASK_XOR
+    SHARED        = args.SHARED
+    MULTI_MODEL        = args.MULTI_MODEL
     MULTI = args.MULTI
     ALL = args.ALL
     TRAINING_TYPE= args.TRAINING_TYPE
@@ -212,17 +259,13 @@ if __name__ == "__main__":
 
 
 
-    MODEL_TYPE = ['hierarchical']
+    MODEL_TYPE = [ 'multi_t','multi_s']
 
 
     for model_type in MODEL_TYPE:
-        for model_name in os.listdir(MODEL_FOLDER):
-            if not model_name == 'model.h5':
-                continue
-    
-            process_eval = Process(target=run_attack, args=()  )
-            process_eval.start()
-            process_eval.join()
+        process_eval = Process(target=run_attack, args=(model_type,MULTI_MODEL,SHARED)  )
+        process_eval.start()
+        process_eval.join()
                             
             
             

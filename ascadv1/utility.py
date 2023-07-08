@@ -240,8 +240,8 @@ def to_matrix(text):
 
     
 
-def load_dataset(byte,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
-    target = 't1'
+def load_dataset(byte, target = 's1',n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
+    
     training = dataset == 'training' 
     if print_logs :
         str_targets = 'Loading samples and labels for {}'.format(target)
@@ -336,7 +336,7 @@ def load_dataset_multi(target,n_traces = None,dataset = 'training',encoded_label
         real_values_t1_temp = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces]
         for byte in range(2,16):
             Y_profiling_dict['output_s_{}'.format(byte)] = get_hot_encode(real_values_s1_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_s1_temp[:,byte] 
-            Y_profiling_dict['output_{}'.format(byte)] = get_hot_encode(real_values_t1_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t1_temp[:,byte] 
+            Y_profiling_dict['output_t_{}'.format(byte)] = get_hot_encode(real_values_t1_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t1_temp[:,byte] 
                                               
 
                                            
@@ -351,7 +351,7 @@ def load_dataset_multi(target,n_traces = None,dataset = 'training',encoded_label
             real_values_t1_temp_val = np.array(labels_dict_val['t1'],dtype = np.uint8)[:10000]
             for byte in range(2,16):
                 Y_validation_dict['output_s_{}'.format(byte)] = get_hot_encode(real_values_s1_temp_val[:,byte],classes = 256 )   
-                Y_validation_dict['output_{}'.format(byte)] = get_hot_encode(real_values_t1_temp_val[:,byte],classes = 256 )   
+                Y_validation_dict['output_t_{}'.format(byte)] = get_hot_encode(real_values_t1_temp_val[:,byte],classes = 256 )   
 
 
 

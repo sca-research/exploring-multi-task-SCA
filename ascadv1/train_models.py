@@ -29,9 +29,9 @@ from utility import  METRICS_FOLDER , MODEL_FOLDER
 from utility import XorLayer , PoolingCrop , InvSboxLayer , SharedWeightsDenseLayer
 
 from utility import load_dataset, load_dataset_multi 
-from tqdm import tqdm
 
-
+import tensorflow.experimental.numpy as tnp
+tnp.experimental_enable_numpy_behavior()
 seed = 42
 
 
@@ -41,7 +41,116 @@ os.environ['PYTHONHASHSEED'] = str(seed)
 os.environ['TF_DETERMINISTIC_OPS'] = '1'
 os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
+class Cross_Model(tf.keras.Model):
 
+    
+    def __init__(self,inputs,outputs):
+        
+        super(Cross_Model, self).__init__(inputs = inputs,outputs = outputs)
+        
+
+        #self.snr_layer = snr_layer
+        all_maps = np.load('utils/xor_mapping.npy')
+        mapping1 = []
+        mapping2 = []
+        for classe in range(256):
+            mapped = np.where(all_maps[classe] == 1)
+            mapping1.append(mapped[0])
+            mapping2.append(mapped[1])
+        self.xor_mapping1 = np.array(mapping1)
+        self.xor_mapping2 = np.array(mapping2) 
+        self.loss_tracker = tf.keras.metrics.Mean(name= 'loss')
+
+
+                
+
+    def train_step(self, data):
+        x, y = data
+        labels_mask = None
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)  # Forward pass
+            loss = self.compiled_loss(
+                y,
+                y_pred,
+                regularization_losses=self.losses,
+            )
+            res = {}
+            for byte in range(2,16):
+                target = tf.cast(y['output_{}'.format(byte)],tf.float32)
+                predictions = y_pred['output_masked_{}'.format(byte)]
+                pred_true = tnp.asarray(target)[:,self.xor_mapping1]
+                pred_predictions = tnp.asarray(predictions)[:,self.xor_mapping2]
+                res[byte] = tf.reduce_sum(tf.multiply(pred_true,pred_predictions),axis =2)   
+                if labels_mask is None:
+                    labels_mask = res[byte]
+                else:
+                    labels_mask = labels_mask + res[byte]
+
+            mask_loss = tf.keras.losses.categorical_crossentropy(labels_mask/14,y_pred['output_mask']) 
+            loss = loss +  mask_loss 
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        
+
+        # Compute our own metrics
+        self.loss_tracker.update_state(loss)
+
+        #self.compiled_metrics.update_state(y, y_pred)
+
+        # Return a dict mapping metric names to current value.
+        # Note that it will include the loss (tracked in self.metrics).
+      
+        self.compiled_metrics.update_state(y, y_pred)
+        # Return a dict mapping metric names to current value.
+        # Note that it will include the loss (tracked in self.metrics).
+        dict_metrics = {}
+        for m in self.metrics:
+            dict_metrics[m.name] = m.result()
+        dict_metrics['loss'] = self.loss_tracker.result()
+        return dict_metrics
+
+    
+    def test_step(self,data):
+        x, y = data
+        # forward pass, no backprop, inference mode 
+        labels_mask = None
+        y_pred = self(x, training=False)
+        loss = self.compiled_loss(
+            y,
+            y_pred,
+            regularization_losses=self.losses,
+        )
+        res = {}
+        for byte in range(2,16):
+            target = tf.cast(y['output_{}'.format(byte)],tf.float32)
+            predictions = y_pred['output_masked_{}'.format(byte)]
+            pred_true = tnp.asarray(target)[:,self.xor_mapping1]
+            pred_predictions = tnp.asarray(predictions)[:,self.xor_mapping2]
+            res[byte] = tf.reduce_sum(tf.multiply(pred_true,pred_predictions),axis =2)   
+            if labels_mask is None:
+                labels_mask = res[byte]
+            else:
+                labels_mask = labels_mask + res[byte]
+
+        mask_loss = tf.keras.losses.categorical_crossentropy(labels_mask/14,y_pred['output_mask'])  
+        loss = loss + mask_loss  
+
+        
+        # Update val metrics
+        self.loss_tracker.update_state(loss)
+    
+        self.compiled_metrics.update_state(y, y_pred)
+        # Return a dict mapping metric names to current value.
+        # Note that it will include the loss (tracked in self.metrics).
+        dict_metrics = {}
+        for m in self.metrics:
+            dict_metrics[m.name] = m.result()
+        dict_metrics['loss'] = self.loss_tracker.result()
+        return dict_metrics
 
     
 class Multi_Model(tf.keras.Model):
@@ -123,7 +232,7 @@ class Multi_Model(tf.keras.Model):
 
 ###########################################################################
 
-def model_single_task(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = True):
+def model_single_task(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = True):
     inputs_dict = {}
     
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -131,7 +240,7 @@ def model_single_task(convolution_blocks,dense_blocks , kernel_size,filters, str
     inputs_dict['traces'] = inputs   
     
     branch = input_layer_creation(inputs,input_length)
-    branch = cnn_core(branch,convolution_blocks = convolution_blocks, kernel_size = kernel_size,filters = filters, strides = strides, pooling_size = pooling_size)
+    branch = cnn_core(branch,convolution_blocks = 1, kernel_size = kernel_size,filters = filters, strides = strides, pooling_size = pooling_size)
 
     outputs = {}
       
@@ -153,9 +262,11 @@ def model_single_task(convolution_blocks,dense_blocks , kernel_size,filters, str
 
 
 
-def model_multi_task_single_target_one_shared_mask(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
+def model_multi_task_single_target_one_shared_mask(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,cross_model = False,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
     
     inputs_dict = {}    
+    outputs = {} 
+    metrics = {}
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
     inputs_dict['traces'] = inputs   
    
@@ -164,16 +275,21 @@ def model_multi_task_single_target_one_shared_mask(convolution_blocks,dense_bloc
     branch = cnn_core(branch,convolution_blocks = convolution_blocks, kernel_size = kernel_size,filters = filters, strides = strides, pooling_size = pooling_size)
 
     mask_branch = dense_core(branch,dense_blocks = dense_blocks,dense_units = dense_units,batch_norm = False,activated = True)
+    if cross_model:
+        outputs['output_mask'] = mask_branch
 
 
-    outputs = {} 
+    
 
     for byte in range(2,16):
         
         intermediate_branch = dense_core(branch,dense_blocks = dense_blocks,dense_units = dense_units,batch_norm = False,activated = False)
+        if cross_model:
+            outputs['output_masked_{}'.format(byte)] = Softmax()(intermediate_branch)
         
         xor = XorLayer(name ='xor_{}'.format(byte) )([intermediate_branch,mask_branch])        
         outputs['output_{}'.format(byte)] = Softmax(name = 'output_t_{}'.format(byte))(xor)
+        metrics['output_{}'.format(byte)] = 'accuracy'
         
     losses = {}   
     
@@ -184,17 +300,22 @@ def model_multi_task_single_target_one_shared_mask(convolution_blocks,dense_bloc
     for k , v in outputs.items():
         losses[k] = 'categorical_crossentropy'
 
+    if multi_model:
+        model = Multi_Model(inputs = inputs_dict,outputs = outputs)  
+    elif cross_model:
+        model = Cross_Model(inputs = inputs_dict,outputs = outputs)  
+    else:
+        model = Model(inputs = inputs_dict,outputs = outputs,name='cnn_multi_task')        
 
-    model = Model(inputs = inputs_dict,outputs = outputs,name='cnn_multi_task')      if not multi_model else Multi_Model(inputs = inputs_dict,outputs = outputs)  
     optimizer = Adam(learning_rate=learning_rate)
-    model.compile(loss=losses, optimizer=optimizer, metrics=['accuracy'])
+    model.compile(loss=losses, optimizer=optimizer,metrics = metrics)
     
     if summary:
         model.summary()
     return model   
 
 
-def model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
+def model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
     
     inputs_dict = {}    
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -231,7 +352,7 @@ def model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blo
     return model   
 
 
-def model_multi_task_single_target(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
+def model_multi_task_single_target(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
     
     inputs_dict = {}    
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -271,7 +392,7 @@ def model_multi_task_single_target(convolution_blocks,dense_blocks , kernel_size
 
 
 
-def model_multi_task_single_target_not_shared(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
+def model_multi_task_single_target_not_shared(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
     
     inputs_dict = {}    
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -310,7 +431,7 @@ def model_multi_task_single_target_not_shared(convolution_blocks,dense_blocks , 
 
 
 
-def model_multi_task_multi_target(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
+def model_multi_task_multi_target(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False):
     
     inputs_dict = {}    
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -337,13 +458,10 @@ def model_multi_task_multi_target(convolution_blocks,dense_blocks , kernel_size,
         inv_sbox = Softmax(name = 'output_s_{}'.format(byte))(xor_s)
         outputs['output_s_{}'.format(byte)] = inv_sbox
         
-        inv_sbox = InvSboxLayer(name = 'inv_sbox_{}'.format(byte))(inv_sbox)
+      
         xor_t_r = xor_operation([shared_branch_t_r[:,:,byte-2],shared_branch_r_activated])        
    
-        
-        add_shares = Multiply()([xor_t_r,inv_sbox])
-
-        outputs['output_{}'.format(byte)] = Softmax(name = 'output_t_{}'.format(byte))(add_shares)
+        outputs['output_t_{}'.format(byte)] = Softmax(name = 'output_t_{}'.format(byte))(xor_t_r)
         
     losses = {}   
     
@@ -361,7 +479,7 @@ def model_multi_task_multi_target(convolution_blocks,dense_blocks , kernel_size,
     return model   
 
 
-def model_multi_task_single_target_multi_shares(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = True):
+def model_multi_task_single_target_multi_shares(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,multi_model = False,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = True):
     
     inputs_dict = {}    
     inputs  = Input(shape = (input_length,1) ,name = 'traces')
@@ -479,14 +597,15 @@ def dense_core_shared(inputs_core, shared_block = 1,non_shared_block = 1, units 
 
 
 #### Training high level function
-def train_model(training_type,byte,convolution_blocks , kernel_size,filters, strides , pooling_size,dense_blocks,dense_units,multi_model):
-    epochs = 100 
-    batch_size = 100
+def train_model(training_type,byte,multi_model):
+    epochs = 10 
+    batch_size = 250 
     n_traces = 50000
-    
+    single_task = False
     if 'single_task' in training_type:
-        X_profiling , validation_data = load_dataset(byte,n_traces = n_traces,dataset = 'training')
-        model_t = '{}_{}'.format('multi_model' if multi_model else 'model',training_type) 
+        single_task = True
+        X_profiling , validation_data = load_dataset(byte,target = 't1' if 'subin' in training_type else 's1',n_traces = n_traces,dataset = 'training')
+        model_t = 'model_{}'.format(training_type) 
     elif ('multi_task_single_target_one_shared_mask' in training_type) or ('multi_task_single_target_multi_shares' in training_type) :
         X_profiling , validation_data = load_dataset_multi('t1',n_traces = n_traces,dataset = 'training') 
         model_t = '{}_{}'.format('multi_model' if multi_model else 'model',training_type)     
@@ -508,39 +627,42 @@ def train_model(training_type,byte,convolution_blocks , kernel_size,filters, str
     monitor = 'val_accuracy'
     mode = 'max'
 
-    if model_t == 'model_single_task':
-        model = model_single_task(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)         
+    if single_task:
+        model = model_single_task(input_length = window)         
     elif model_t == '{}_multi_task_single_target'.format('multi_model' if multi_model else 'model'):
 
-        model = model_multi_task_single_target(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)         
+        model = model_multi_task_single_target(multi_model = multi_model,input_length = window)         
         monitor = 'val_loss'   
         mode = 'min'     
     elif model_t == '{}_multi_task_single_target_not_shared'.format('multi_model' if multi_model else 'model'):
 
-        model = model_multi_task_single_target_not_shared(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)         
+        model = model_multi_task_single_target_not_shared(multi_model = multi_model,input_length = window)         
         monitor = 'val_loss'   
         mode = 'min'     
 
     elif model_t == '{}_multi_task_single_target_one_shared_mask'.format('multi_model' if multi_model else 'model'):
         
-        model = model_multi_task_single_target_one_shared_mask(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)                  
+        model = model_multi_task_single_target_one_shared_mask(multi_model = multi_model,input_length = window)                  
         monitor = 'val_loss'   
         mode = 'min'
+    elif model_t == 'model_multi_task_single_target_one_shared_mask_cross':
         
+        model = model_multi_task_single_target_one_shared_mask(cross_model = True,input_length = window)                  
+        monitor = 'val_loss'   
+        mode = 'min'        
         
     elif model_t == '{}_multi_task_single_target_one_shared_mask_shared_branch'.format('multi_model' if multi_model else 'model'):
         
-        model = model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)                  
+        model = model_multi_task_single_target_one_shared_mask_shared_branch(multi_model = multi_model,input_length = window)                  
         monitor = 'val_loss'   
         mode = 'min'        
     elif model_t == '{}_multi_task_multi_target'.format('multi_model' if multi_model else 'model'):
-        
-        model = model_multi_task_multi_target(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)                  
+        model = model_multi_task_multi_target(multi_model = multi_model,input_length = window)                  
         monitor = 'val_loss'   
         mode = 'min'           
     elif model_t == '{}_multi_task_single_target_multi_shares'.format('multi_model' if multi_model else 'model'):
         
-        model = model_multi_task_single_target_multi_shares(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,multi_model = multi_model,input_length = window)                  
+        model = model_multi_task_single_target_multi_shares(multi_model = multi_model,input_length = window)                  
         monitor = 'val_loss'   
         mode = 'min'        
     else:
@@ -549,8 +671,7 @@ def train_model(training_type,byte,convolution_blocks , kernel_size,filters, str
     
     X_profiling = X_profiling.shuffle(len(X_profiling)).batch(batch_size) 
     validation_data = validation_data.batch(batch_size)
-    id_model = 'cb{}ks{}f{}s{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters, strides , pooling_size,dense_blocks,dense_units)
-    file_name = '{}_all_{}'.format(model_t,id_model) 
+    file_name = '{}_{}'.format(model_t,byte) 
     callbacks = tf.keras.callbacks.ModelCheckpoint(
                                 filepath= MODEL_FOLDER+ file_name+'.h5',
                                 save_weights_only=True,
@@ -561,7 +682,9 @@ def train_model(training_type,byte,convolution_blocks , kernel_size,filters, str
     
 
     
-    history = model.fit(X_profiling, batch_size=batch_size, verbose = 1, epochs=epochs, validation_data=validation_data,callbacks =callbacks)
+    history = model.fit(X_profiling, batch_size=batch_size, verbose = 1, epochs=int(epochs*0.8), validation_data=validation_data,callbacks =callbacks)
+    model.compile(optimizer = Adam(learning_rate=0.0001))
+    history_2 = model.fit(X_profiling, batch_size=batch_size, verbose = 1, epochs=int(epochs*0.2), validation_data=validation_data,callbacks =callbacks)
     print('Saved model {} ! '.format(file_name))
  
     file = open(METRICS_FOLDER+'history_training_'+(file_name ),'wb')
@@ -583,49 +706,35 @@ if __name__ == "__main__":
                         help='Classical training of the intermediates', default=False)
     parser.add_argument('--SINGLE',   action="store_true", dest="SINGLE", help='Adding the masks to the labels', default=False)
     parser.add_argument('--MULTI',   action="store_true", dest="MULTI", help='Adding the masks to the labels', default=False)
-    parser.add_argument('--ALL',   action="store_true", dest="ALL", help='Adding the masks to the labels', default=False)
-    args            = parser.parse_args()
+    args            = parser .parse_args()
   
 
     MULTI_MODEL        = args.MULTI_MODEL
     SINGLE        = args.SINGLE
     MULTI = args.MULTI
 
-    ALL = args.ALL
+ 
 
     TARGETS = {}
     if SINGLE:
-        training_types = ['multi_task_single_target_one_shared_mask','multi_task_single_target_one_shared_mask_shared_branch']
+        training_types = ['single_task_subout']
 
     elif MULTI:
-        training_types = ['multi_task_single_target_multi_shares']
-    elif ALL:
-        training_types = ['single_task_xor', 'single_task_twin' , 'multi_task']
+        training_types = ['multi_task_single_target']
     else:
         print('No training mode selected')
 
-    for model_random in tqdm(range(1)):
 
-        # convolution_blocks = np.random.randint(1,3)
-        # kernel_size = sorted(np.random.randint(16,64,size = convolution_blocks))       
-        # filters = np.random.randint(3,16)
-        # strides = np.random.randint(2,30)
-        # pooling_size = np.random.randint(2,5)
-        # dense_blocks = np.random.randint(1,5)
-        # dense_units = (np.random.randint(64,512)//14) * 14 
- 
-        convolution_blocks = 1
-        kernel_size = [34]    
-        filters = 4
-        strides = 17
-        pooling_size = 2
-        dense_blocks = 2
-        dense_units = 200      
-
-        for training_type in training_types:
-            process_eval = Process(target=train_model, args=(training_type,'all',convolution_blocks , kernel_size,filters, strides , pooling_size,dense_blocks,dense_units,MULTI_MODEL))
+    for training_type in training_types:
+        if not 'single_task' in training_type:
+            process_eval = Process(target=train_model, args=(training_type,'all',MULTI_MODEL))
             process_eval.start()
-            process_eval.join()                                    
+            process_eval.join()      
+        else:
+            for byte in range(2,16):       
+                process_eval = Process(target=train_model, args=(training_type,byte,MULTI_MODEL))
+                process_eval.start()
+                process_eval.join()                          
 
 
     print("$ Done !")

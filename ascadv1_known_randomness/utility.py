@@ -49,7 +49,35 @@ shift_rows_s = list([
     ])
 
 
+class Add_Shares(tf.keras.layers.Layer):
+    def __init__(self, input_dim=256,units = 256,shares = 1,name = ''):
+        super(Add_Shares, self).__init__(name = name )
+        
+        self.w = self.add_weight(shape=(shares,input_dim,units), dtype="float32",trainable=True, name ='weights',regularizer = tf.keras.regularizers.L2())   
+        self.biases = self.add_weight(shape=(input_dim,), dtype="float32",trainable=True, name ='biases',regularizer = tf.keras.regularizers.L2())
+        self.shares = shares
+        self.input_dim = input_dim
+        self.shares = shares
+        self.input_dim = input_dim
 
+       
+        
+
+
+        
+    def call(self, inputs):
+        out =  self.biases
+        for share in range(self.shares):
+            out = out+ tf.matmul(inputs[share],self.w[share])
+        return out
+    
+    def get_config(self):
+        config = {'weights':self.w,
+                  'biases': self.biases,
+                  'input_dim' :self.input_dim,
+                  'shares' : self.shares}
+        base_config = super(Add_Shares,self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 
@@ -203,7 +231,7 @@ def load_model_from_name(structure , name):
 
 
 
-def read_from_h5_file(n_traces = 1000,dataset = 'training',load_plaintexts = False):   
+def read_from_h5_file(n_traces = 10000,dataset = 'training',load_plaintexts = False):   
     
     f = h5py.File(DATASET_FOLDER + FILE_DATASET,'r')[dataset]  
     labels_dict = f['labels']
@@ -240,40 +268,219 @@ def to_matrix(text):
 
     
 
-def load_dataset(target,byte,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
-   
+
+    
+
+def load_dataset(target,intermediate,byte,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
     training = dataset == 'training' 
     if print_logs :
         str_targets = 'Loading samples and labels for {}'.format(target)
         print(str_targets)
         
-    traces , labels_dict  = read_from_h5_file(n_traces=n_traces,dataset = dataset)     
-    traces = np.expand_dims(traces,2)
+        
+    traces , labels_dict = read_from_h5_file(n_traces=n_traces,dataset = dataset)
+    traces_val = np.expand_dims(traces,2)
     X_profiling_dict = {}  
-    X_profiling_dict['traces'] = traces
+    X_profiling_dict['traces'] = traces 
+
 
     if training:
-        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'test')
+        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces,dataset = 'test')
+        traces_val = np.expand_dims(traces_val,2)
+        X_validation_dict = {}  
+        X_validation_dict['traces'] = traces_val
+
+    Y_profiling_dict = {}
+    real_values = np.array(labels_dict[intermediate],dtype = np.uint8)[:n_traces]
+    if len(real_values.shape)> 1:
+        real_values = real_values[:,byte]
+    Y_profiling_dict['output'] = get_hot_encode(real_values ) if encoded_labels else  real_values 
+   
+    if training:
+        Y_validation_dict = {}
+        real_values_val = np.array(labels_dict_val[intermediate],dtype = np.uint8)
+        if len(real_values_val.shape)> 1:
+            real_values_val = real_values_val[:,byte]
+        Y_validation_dict['output'] = get_hot_encode(real_values_val) if encoded_labels else  real_values_val 
+
+    if training:       
+        return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
+   
+    else:
+        return (X_profiling_dict,Y_profiling_dict)   
+       
+
+
+
+def load_dataset_multi(byte,n_traces = None,dataset = 'training',multi_target = False,encoded_labels = True,print_logs = True):
+    training = dataset == 'training' 
+    
+    if print_logs :
+        str_targets = 'Loading samples and labels in order to train the multi-task model'
+        print(str_targets)
+        
+    traces , labels_dict = read_from_h5_file(n_traces=n_traces,dataset = dataset)
+    traces_val = np.expand_dims(traces,2)
+    X_profiling_dict = {}  
+    X_profiling_dict['traces'] = traces 
+
+
+    if training:
+        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces,dataset = 'test')
         traces_val = np.expand_dims(traces_val,2)
         X_validation_dict = {}  
         X_validation_dict['traces'] = traces_val
 
 
-    Y_profiling_dict = {}
-   
-    real_values = np.array(labels_dict[target],dtype = np.uint8)[:n_traces]
-    Y_profiling_dict['output'] = get_hot_encode(real_values[:,byte],classes = 256) if encoded_labels else  real_values
-   
-    if training:
-        Y_validation_dict = {}
 
-        real_values_val = np.array(labels_dict_val[target],dtype = np.uint8)[:n_traces//10]
-        Y_validation_dict['output'] = get_hot_encode(real_values_val[:,byte],classes = 256 )   
+    if print_logs :
+        print('Loaded inputs')    
+        
+
+    real_values_t1_i = np.array(labels_dict['t1^i'],dtype = np.uint8)[:n_traces,byte]
+    real_values_t1_ri = np.array(labels_dict['t1^ri'],dtype = np.uint8)[:n_traces,byte]
+    real_values_r = np.array(labels_dict['r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_t1_r = np.array(labels_dict['t1^r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_s1_r = np.array(labels_dict['s1^r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_i = np.array(labels_dict['i'],dtype = np.uint8)[:n_traces]
+    Y_profiling_dict = {}  
+
+    if not multi_target:
+        
+        Y_profiling_dict['output_r'] = get_hot_encode(real_values_r) if encoded_labels else  real_values_r    
+        Y_profiling_dict['output_i'] = get_hot_encode(real_values_i) if encoded_labels else  real_values_i       
+        Y_profiling_dict['output_t1_i'] = get_hot_encode(real_values_t1_i) if encoded_labels else  real_values_t1_i 
+        Y_profiling_dict['output_t1_r'] = get_hot_encode(real_values_t1_r) if encoded_labels else  real_values_t1_r 
+        Y_profiling_dict['output_t1_ri'] = get_hot_encode(real_values_t1_ri) if encoded_labels else  real_values_t1_ri
+    else:
+        Y_profiling_dict['output_r'] = get_hot_encode(real_values_r) if encoded_labels else  real_values_r    
+        Y_profiling_dict['output_i'] = get_hot_encode(real_values_i) if encoded_labels else  real_values_i       
+        Y_profiling_dict['output_t1_i'] = get_hot_encode(real_values_t1_i) if encoded_labels else  real_values_t1_i 
+        Y_profiling_dict['output_s1_r'] = get_hot_encode(real_values_s1_r) if encoded_labels else  real_values_s1_r 
+
+     
+
+                                              
+    if training:
+        real_values_t1_i_val = np.array(labels_dict_val['t1^i'],dtype = np.uint8)[:,byte]
+        real_values_t1_ri_val = np.array(labels_dict_val['t1^ri'],dtype = np.uint8)[:,byte]
+        real_values_t1_r_val = np.array(labels_dict_val['t1^r'],dtype = np.uint8)[:,byte]
+        real_values_s1_r_val = np.array(labels_dict_val['s1^r'],dtype = np.uint8)[:,byte]
+        real_values_r_val = np.array(labels_dict_val['r'],dtype = np.uint8)[:,byte]
+        real_values_i_val = np.array(labels_dict_val['i'],dtype = np.uint8)
+        Y_validation_dict = {}  
+    
+        if not multi_target:
+            
+            Y_validation_dict['output_r'] = get_hot_encode(real_values_r_val)  
+            Y_validation_dict['output_i'] = get_hot_encode(real_values_i_val)       
+            Y_validation_dict['output_t1_i'] = get_hot_encode(real_values_t1_i_val)
+            Y_validation_dict['output_t1_r'] = get_hot_encode(real_values_t1_r_val) 
+            Y_validation_dict['output_t1_ri'] = get_hot_encode(real_values_t1_ri_val)
+        else:
+            Y_validation_dict['output_r'] = get_hot_encode(real_values_r_val)   
+            Y_validation_dict['output_i'] = get_hot_encode(real_values_i_val)     
+            Y_validation_dict['output_t1_i'] = get_hot_encode(real_values_t1_i_val) 
+            Y_validation_dict['output_s1_r'] = get_hot_encode(real_values_s1_r_val) 
+
+
+
         return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
    
     else:
-        return (X_profiling_dict,Y_profiling_dict)  
-       
+        return (X_profiling_dict,Y_profiling_dict)    
+
+
+
+def load_dataset_hierarchical(byte,n_traces = 250000,multi_target =False,dataset = 'training',encoded_labels = True,print_logs = True):
+    training = dataset == 'training' 
+    if print_logs :
+        str_targets = 'Loading samples and labels in order to train the hierarchical model'
+        print(str_targets)
+        
+    traces , labels_dict = read_from_h5_file(n_traces=n_traces,dataset = dataset)
+    traces_val = np.expand_dims(traces,2)
+    X_profiling_dict = {}  
+    X_profiling_dict['traces'] = traces 
+    if multi_target:
+        X_profiling_dict['plaintext'] = get_hot_encode(np.array(labels_dict['p1'],dtype = np.uint8)[:n_traces,byte])
+
+
+    if training:
+        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces,dataset = 'test')
+        traces_val = np.expand_dims(traces_val,2)
+        X_validation_dict = {}  
+        X_validation_dict['traces'] = traces_val
+        if multi_target:
+            X_validation_dict['plaintext'] = get_hot_encode(np.array(labels_dict_val['p1'],dtype = np.uint8)[:,byte])        
+
+    if print_logs :
+        print('Loaded inputs')    
+
+    real_values_t1_i = np.array(labels_dict['t1^i'],dtype = np.uint8)[:n_traces,byte]
+    real_values_t1_ri = np.array(labels_dict['t1^ri'],dtype = np.uint8)[:n_traces,byte]
+    real_values_t1_r = np.array(labels_dict['t1^r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_s1_r = np.array(labels_dict['s1^r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_r = np.array(labels_dict['r'],dtype = np.uint8)[:n_traces,byte]
+    real_values_i = np.array(labels_dict['i'],dtype = np.uint8)[:n_traces]
+    real_values_t1 = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces,byte]
+    real_values_s1 = np.array(labels_dict['s1'],dtype = np.uint8)[:n_traces,byte]
+    real_values_k1 = np.array(labels_dict['k1'],dtype = np.uint8)[:n_traces,byte]
+    Y_profiling_dict = {}  
+
+    if not multi_target:
+        
+        Y_profiling_dict['output_r'] = get_hot_encode(real_values_r) if encoded_labels else  real_values_r    
+        Y_profiling_dict['output_i'] = get_hot_encode(real_values_i) if encoded_labels else  real_values_i       
+        Y_profiling_dict['output_t1_i'] = get_hot_encode(real_values_t1_i) if encoded_labels else  real_values_t1_i 
+        Y_profiling_dict['output_t1_r'] = get_hot_encode(real_values_t1_r) if encoded_labels else  real_values_t1_r 
+        Y_profiling_dict['output_t1_ri'] = get_hot_encode(real_values_t1_ri) if encoded_labels else  real_values_t1_ri
+        Y_profiling_dict['output'] = get_hot_encode(real_values_t1) if encoded_labels else  real_values_t1
+    else:
+        Y_profiling_dict['output_r'] = get_hot_encode(real_values_r) if encoded_labels else  real_values_r    
+        Y_profiling_dict['output_i'] = get_hot_encode(real_values_i) if encoded_labels else  real_values_i       
+        Y_profiling_dict['output_t1_i'] = get_hot_encode(real_values_t1_i) if encoded_labels else  real_values_t1_i 
+        Y_profiling_dict['output_s1_r'] = get_hot_encode(real_values_s1_r) if encoded_labels else  real_values_s1_r 
+        Y_profiling_dict['output_t1'] = get_hot_encode(real_values_t1) if encoded_labels else  real_values_t1
+        Y_profiling_dict['output_s1'] = get_hot_encode(real_values_s1) if encoded_labels else  real_values_s1
+        Y_profiling_dict['output'] = get_hot_encode(real_values_k1) if encoded_labels else  real_values_k1
+     
+
+                                              
+    if training:
+        real_values_t1_i_val = np.array(labels_dict_val['t1^i'],dtype = np.uint8)[:,byte]
+        real_values_t1_ri_val = np.array(labels_dict_val['t1^ri'],dtype = np.uint8)[:,byte]
+        real_values_t1_r_val = np.array(labels_dict_val['t1^r'],dtype = np.uint8)[:,byte]
+        real_values_s1_r_val = np.array(labels_dict_val['s1^r'],dtype = np.uint8)[:,byte]
+        real_values_r_val = np.array(labels_dict_val['r'],dtype = np.uint8)[:,byte]
+        real_values_i_val = np.array(labels_dict_val['i'],dtype = np.uint8)
+        real_values_t1_val = np.array(labels_dict_val['t1'],dtype = np.uint8)[:n_traces,byte]
+        real_values_s1_val = np.array(labels_dict_val['s1'],dtype = np.uint8)[:n_traces,byte]
+        real_values_k1_val = np.array(labels_dict_val['k1'],dtype = np.uint8)[:n_traces,byte]
+        Y_validation_dict = {}  
+    
+        if not multi_target:
+            
+            Y_validation_dict['output_r'] = get_hot_encode(real_values_r_val)  
+            Y_validation_dict['output_i'] = get_hot_encode(real_values_i_val)       
+            Y_validation_dict['output_t1_i'] = get_hot_encode(real_values_t1_i_val)
+            Y_validation_dict['output_t1_r'] = get_hot_encode(real_values_t1_r_val) 
+            Y_validation_dict['output_t1_ri'] = get_hot_encode(real_values_t1_ri_val)
+            Y_validation_dict['output'] = get_hot_encode(real_values_t1_val)
+        else:
+            Y_validation_dict['output_r'] = get_hot_encode(real_values_r_val)   
+            Y_validation_dict['output_i'] = get_hot_encode(real_values_i_val)     
+            Y_validation_dict['output_t1_i'] = get_hot_encode(real_values_t1_i_val) 
+            Y_validation_dict['output_s1_r'] = get_hot_encode(real_values_s1_r_val) 
+            Y_validation_dict['output_t1'] = get_hot_encode(real_values_t1_val)
+            Y_validation_dict['output_s1'] = get_hot_encode(real_values_s1_val)
+            Y_validation_dict['output'] = get_hot_encode(real_values_k1_val)
+
+
+        return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
+   
+    else:
+        return (X_profiling_dict,Y_profiling_dict)      
 
 def normalise_neural_trace(v):
     # Shift up
@@ -296,73 +503,6 @@ def normalise_traces_to_int8(x):
     x = x * 128
     return x.astype(np.int8)
 
-def load_dataset_multi(target,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):
-    training = dataset == 'training' 
-    if print_logs :
-        str_targets = 'Loading samples and labels in order to train the multi-task model'
-        print(str_targets)
-        
-    traces , labels_dict  = read_from_h5_file(n_traces=n_traces,dataset = dataset)     
-    traces = np.expand_dims(traces,2)
-    X_profiling_dict = {}  
-    X_profiling_dict['traces'] = traces
-
-    if training:
-        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'test')
-        traces_val = np.expand_dims(traces_val,2)
-        X_validation_dict = {}  
-        X_validation_dict['traces'] = traces_val
-
-
-    if print_logs :
-        print('Loaded inputs')    
-        
-
-    Y_profiling_dict = {}
-
-        
-    real_values_temp = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces]        
-    real_values_i = np.array(labels_dict['i'],dtype = np.uint8)[:n_traces]      
-    Y_profiling_dict['output_i'] = get_hot_encode(real_values_i,classes = 256 ) if encoded_labels else real_values_i
-    real_values_t_i_temp = np.array(labels_dict['t1^i'],dtype = np.uint8)[:n_traces]      
-    real_values_s_r_temp = np.array(labels_dict['s1^r'],dtype = np.uint8)[:n_traces]   
-    real_values_t_ri_temp = np.array(labels_dict['t1^ri'],dtype = np.uint8)[:n_traces] 
-    real_values_t_r_temp = np.array(labels_dict['t1^r'],dtype = np.uint8)[:n_traces]    
-    real_values_r_temp = np.array(labels_dict['r'],dtype = np.uint8)[:n_traces] 
-    for byte in range(2,16):
-        Y_profiling_dict['output_{}'.format(byte)] = get_hot_encode(real_values_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_temp[:,byte] 
-        Y_profiling_dict['output_t_i_{}'.format(byte)] = get_hot_encode(real_values_t_i_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_i_temp[:,byte] 
-        Y_profiling_dict['output_s_r_{}'.format(byte)] = get_hot_encode(real_values_s_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_s_r_temp[:,byte]
-        Y_profiling_dict['output_t_r_{}'.format(byte)] = get_hot_encode(real_values_t_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_r_temp[:,byte] 
-        Y_profiling_dict['output_t_ri_{}'.format(byte)] = get_hot_encode(real_values_t_ri_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_ri_temp[:,byte] 
-        Y_profiling_dict['output_r_{}'.format(byte)] = get_hot_encode(real_values_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_r_temp[:,byte] 
-
-                                           
-    if training:
-        Y_validation_dict = {}
-   
-        real_values_temp = np.array(labels_dict_val['t1'],dtype = np.uint8)[:n_traces//10]        
-        real_values_i = np.array(labels_dict_val['i'],dtype = np.uint8)[:n_traces//10]      
-        Y_validation_dict['output_i'] = get_hot_encode(real_values_i,classes = 256 ) if encoded_labels else real_values_i
-        real_values_t_i_temp = np.array(labels_dict_val['t1^i'],dtype = np.uint8)[:n_traces//10]      
-        real_values_s_r_temp = np.array(labels_dict_val['s1^r'],dtype = np.uint8)[:n_traces//10]   
-        real_values_t_ri_temp = np.array(labels_dict_val['t1^ri'],dtype = np.uint8)[:n_traces//10] 
-        real_values_t_r_temp = np.array(labels_dict_val['t1^r'],dtype = np.uint8)[:n_traces//10]    
-        real_values_r_temp = np.array(labels_dict_val['r'],dtype = np.uint8)[:n_traces//10] 
-        for byte in range(2,16):
-            Y_validation_dict['output_{}'.format(byte)] = get_hot_encode(real_values_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_temp[:,byte] 
-            Y_validation_dict['output_t_i_{}'.format(byte)] = get_hot_encode(real_values_t_i_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_i_temp[:,byte] 
-            Y_validation_dict['output_s_r_{}'.format(byte)] = get_hot_encode(real_values_s_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_s_r_temp[:,byte] 
-            Y_validation_dict['output_t_r_{}'.format(byte)] = get_hot_encode(real_values_t_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_r_temp[:,byte] 
-            Y_validation_dict['output_t_ri_{}'.format(byte)] = get_hot_encode(real_values_t_ri_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_t_ri_temp[:,byte] 
-            Y_validation_dict['output_r_{}'.format(byte)] = get_hot_encode(real_values_r_temp[:,byte],classes = 256 ) if encoded_labels else  real_values_r_temp[:,byte] 
-
-
-
-        return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
-   
-    else:
-        return (X_profiling_dict,Y_profiling_dict)    
 
 
 

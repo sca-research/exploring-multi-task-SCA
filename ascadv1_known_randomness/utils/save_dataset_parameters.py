@@ -8,7 +8,7 @@
 
 import pickle
 import numpy as np
-
+import sys
 
 
 dict_parameters = {}
@@ -16,7 +16,7 @@ dict_parameters = {}
 dict_parameters['KEY'] = 0x00112233445566778899AABBCCDDEEFF 
 
 ########### PATHS & FILE MANAGEMENT ######################################
-DATASET_FOLDER= '/home/martho/datasets/ASCADv1/'  
+DATASET_FOLDER= 'D:/dataset_masked_AES/dataset_ASCAD/' if sys.platform == 'win32' else  '/home/martho/datasets/ASCADv1/'  
 FILE_DATASET = 'Ascad_v1_dataset.h5'
 PROJECT_FOLDER = '/home/martho/Projets/exploring-multi-task-experiments/ascadv1/'  
 

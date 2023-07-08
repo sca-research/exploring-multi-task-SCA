@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import parse
+
 import os
 import numpy as np
 
@@ -10,95 +10,100 @@ import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 
 from multiprocessing import Process
-from train_models import model_single_task_xor , model_multi_task , model_single_task_twin
+from train_models import cnn_best , cnn_multi_task_multi_target , cnn_multi_task_subbytes_inputs , cnn_hierarchical_multi_target, cnn_hierarchical_subbytes_inputs
 
 # import dataset paths and variables
-from utility import   MODEL_FOLDER
+from utility import    VARIABLE_LIST , METRICS_FOLDER
 
 # import custom layers
 
-from utility import load_dataset, load_dataset_multi ,load_model_from_name
+from utility import load_dataset, load_dataset_multi ,load_dataset_hierarchical ,load_model_from_name
 
 
 #### Training high level function
-def test_model(convolution_blocks , kernel_size,filters, strides , pooling_size,dense_blocks,dense_units,model_type):
-    id_model  = 'cb{}ks{}f{}s{}ps{}db{}du{}'.format(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units)
+def test_model( training_type,target_byte ,target):
 
-    n_traces = 10000
-    if 'multi_task' in model_type:
-        multi_name = 'model_{}_all_{}.h5'.format(model_type,id_model) 
-
-        model_struct = model_multi_task(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)
-        model = load_model_from_name(model_struct,multi_name)  
-        X_profiling = load_dataset_multi(n_traces = n_traces,dataset = 'attack')
-    else:
-        for byte in range(6,7):
-            name = 'model_{}_{}_{}.h5'.format(model_type,byte,id_model) 
-            if 'xor' in name:
-                model_struct = model_single_task_xor(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)                
-            else:
-                model_struct = model_single_task_twin(convolution_blocks,dense_blocks , kernel_size,filters, strides , pooling_size,dense_units,input_length = 250000,summary = False)    
-            model = load_model_from_name(model_struct,name) 
+    if training_type  == 'classical':
+        model = cnn_best(input_length=250000)
+        model = load_model_from_name(model,'{}_cnn_single.h5'.format(target_byte)) 
+        X , Y = load_dataset(target_byte,target,VARIABLE_LIST[target].index(target_byte),n_traces = 10000,dataset = 'attack')
+        predictions = model.evaluate(X, Y,batch_size = 250)
+        np.save(METRICS_FOLDER + target_byte + '_classical_accuracy.npy',predictions[1])
+    if training_type == 'multi':
+        model = cnn_multi_task_subbytes_inputs(input_length=250000,summary = False) if target == 't1' else cnn_multi_task_multi_target(input_length=250000,summary = False)
+        model_type = 'multi_task_subbytes_inputs'  if target == 't1' else 'multi_task_multi_target'
+        model = load_model_from_name(model,'{}_cnn_{}.h5'.format(target_byte,model_type)) 
+        X , Y = load_dataset_multi(VARIABLE_LIST[target].index(target_byte),n_traces = 10000,dataset = 'attack',multi_target = target == 'k1')
+        predictions = model.evaluate(X, Y,batch_size = 250)    
+        np.save(METRICS_FOLDER + target_byte +'_multi_accuracy.npy',predictions[5:] )
+    if training_type == 'multi':
+        model = cnn_hierarchical_subbytes_inputs(input_length=250000,summary = False) if target == 't1' else cnn_hierarchical_multi_target(input_length=250000,summary = False)
+        model_type = 'hierarchical_subbytes_inputs' if target == 't1' else 'hierarchical_multi_target'
+        model = load_model_from_name(model,'{}_cnn_{}.h5'.format(target_byte,model_type)) 
+        X , Y = load_dataset_hierarchical(VARIABLE_LIST[target].index(target_byte),n_traces = 10000,dataset = 'attack',multi_target = target == 'k1')
+        predictions = model.evaluate(X, Y,batch_size = 250)    
+        np.save(METRICS_FOLDER + target_byte +'_hierarchical_accuracy.npy',predictions[7:] )       
+            
     
-        X_profiling = load_dataset(6,n_traces = n_traces,dataset = 'attack')
-    results = model.evaluate(X_profiling[0],X_profiling[1], batch_size=256)
     
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Trains Neural Network Models')
-    parser.add_argument('--XOR',   action="store_true", dest="SINGLE_TASK_XOR", help='Adding the masks to the labels', default=False)
-    parser.add_argument('--TWIN',   action="store_true", dest="SINGLE_TASK_TWIN", help='Adding the masks to the labels', default=False)
+
+    parser.add_argument('--CLASSICAL', action="store_true", dest="CLASSICAL",
+                        help='Classical training of the intermediates', default=False)
     parser.add_argument('--MULTI',   action="store_true", dest="MULTI", help='Adding the masks to the labels', default=False)
-    #parser.add_argument('-scenario',   action="store", dest="TRAINING_TYPE", help='Adding the masks to the labels', default='extracted')
-    parser.add_argument('--ALL',   action="store_true", dest="ALL", help='Adding the masks to the labels', default=False)
-        
+    parser.add_argument('--HIERARCHICAL',   action="store_true", dest="HIERARCHICAL", help='Adding the masks to the labels', default=False)
+    parser.add_argument('--MULTI_TARGET',   action="store_true", dest="MULTI_TARGET", help='Adding the masks to the labels', default=False)
     args            = parser.parse_args()
   
 
-   
-    SINGLE_TASK_XOR        = args.SINGLE_TASK_XOR
-    SINGLE_TASK_TWIN = args.SINGLE_TASK_TWIN
+    HIERARCHICAL        = args.HIERARCHICAL
+    CLASSICAL        = args.CLASSICAL
     MULTI = args.MULTI
-    ALL = args.ALL
-    #TRAINING_TYPE= args.TRAINING_TYPE
-
+    MULTI_TARGET = args.MULTI_TARGET
     TARGETS = {}
-
-    if SINGLE_TASK_XOR:
-        MODEL_TYPE = ['single_task_xor']
-    elif SINGLE_TASK_TWIN:
-        MODEL_TYPE = ['single_task_twin']
+    if CLASSICAL:   
+       training_types = ['classical']
+       TARGETS['classical'] = ['i' , 's1^r','t1^r','r','t1^i','t1^ri'] 
+       # TARGETS['classical'] = ['i'] 
+       BYTES = [i for i in range(2,16)]
     elif MULTI:
-        MODEL_TYPE = ['multi_task']
-    elif ALL:
-        MODEL_TYPE = ['single_task_xor','single_task_twin','multi_task']
+        training_types = ['multi']
+        TARGETS['multi'] = ['t1'] if not MULTI_TARGET else ['k1']
+        BYTES = [i for i in range(2,16)]
+
+    elif HIERARCHICAL:
+        training_types = ['hierarchical']
+        TARGETS['hierarchical'] = ['t1'] if not MULTI_TARGET else ['k1']
+        BYTES = [i for i in range(2,16)]
+        #BYTES = [4,5,6,7,9,10,11,12,13,15,16]
+    
     else:
         print('No training mode selected')
+        training_type = 'multi'
 
-    for model_type in MODEL_TYPE:
-        for model_name in os.listdir(MODEL_FOLDER):
-            byte = 'all' if 'multi' in model_name else '6'
-            multi_task =  'model_{}_{}'.format(model_type,byte)
-            print(model_name)
-            if not multi_task  in model_name :
-                continue
-            
-            format_string = multi_task + '_cb{}ks{}f{}s{}ps{}db{}du{}.h5'
-            parsed = parse.parse(format_string,model_name)
-            convolution_blocks = int(parsed[0])
-            kernel_size_list = parsed[1][1:-1]
-            kernel_size_list = kernel_size_list.split(',')   
-            kernel_size = [int(elem) for elem in kernel_size_list]
-            filters = int(parsed[2])
-            strides = int(parsed[3])
-            pooling_size = int(parsed[4])
-            dense_blocks = int(parsed[5])
-            dense_units = int(parsed[6])
 
-    
-            process_eval = Process(target=test_model, args=(convolution_blocks , kernel_size,filters,strides , pooling_size,dense_blocks,dense_units,model_type))
-            process_eval.start()
-            process_eval.join()
+    for training_type in training_types:
+        for TARGET in TARGETS[training_type]:
+            acc_target = []
+            if not TARGET == 'i':
+                for BYTE in BYTES:
+                    
+                    target_byte = VARIABLE_LIST[TARGET][BYTE] 
+            #         acc = np.load(METRICS_FOLDER + target_byte + '_classical_accuracy.npy')
+            #         acc_target.append(acc)
+            #     print(TARGET, np.mean(acc_target))
+            # else:
+            #     acc = np.load(METRICS_FOLDER + 'i' + '_classical_accuracy.npy')
+            #     print('i :',acc)
+                    process_eval = Process(target=test_model, args=(training_type,target_byte ,TARGET))
+                    process_eval.start()
+                    process_eval.join()
+            else:
+                process_eval = Process(target=test_model, args=( training_type,'i' ,TARGET))
+                process_eval.start()
+                process_eval.join()
 
 
     print("$ Done !")

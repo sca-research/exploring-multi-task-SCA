@@ -342,65 +342,90 @@ class InvSboxLayer(tf.keras.layers.Layer):
 
     
 
-def load_dataset(byte,flat = False,whole = False,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
-    target = 't1'
+def load_dataset(byte,t = False,alpha_known = False,n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True):    
     training = dataset == 'training' 
     if print_logs :
-        str_targets = 'Loading samples and labels for {}'.format(target)
+        str_targets = 'Loading samples and labels in order to train the multi-task model'
         print(str_targets)
         
-    traces , labels_dict  = read_from_h5_file(n_traces=n_traces,dataset = dataset)
+    traces , labels_dict = read_from_h5_file(n_traces=n_traces,dataset = dataset)
+   
     traces = np.expand_dims(traces,2)
+
     X_profiling_dict = {}  
-    
-    alpha = np.array(labels_dict['alpha'],dtype = np.uint8)[:n_traces]
-    X_profiling_dict['alpha'] = get_hot_encode(alpha)
-    if  whole:
-        X_profiling_dict['traces'] = traces[:,4088:4088+1605+93*16]
-        
-    elif flat :
-        intermediate_points = traces[:,4088+1605 :4088+1605 + 93*16]
-        X_profiling_dict['inputs_intermediate'] = intermediate_points  
-        X_profiling_dict['inputs_rin'] = traces[:,4088:4088+1605 ]                                 
+    if not alpha_known:
+        X_profiling_dict['inputs_alpha'] = traces[:,:2000]
     else:
-        X_profiling_dict['inputs_intermediate'] = traces[:,4088+1605 + 93*byte:4088+1605 + 93*(byte+1) ] 
-        X_profiling_dict['inputs_rin'] = traces[:,4088:4088+1605 ] 
-
-
-
-    
-    if training:
-        traces_val , labels_dict_val = read_from_h5_file(n_traces=10000,dataset = 'validation')
-        traces_val = np.expand_dims(traces_val,2)
-        X_validation_dict = {}  
-        
-        alpha = np.array(labels_dict_val['alpha'],dtype = np.uint8)[:10000]
-        X_validation_dict['alpha'] = get_hot_encode(alpha)               
-        if  whole:
-            X_validation_dict['traces'] = traces_val[:,4088:4088+1605+93*16]
-            
-        elif flat :
-            X_validation_dict['inputs_intermediate'] = traces_val[:,4088+1605:4088+1605 + 93*16 ] 
-            X_validation_dict['inputs_rin'] = traces_val[:,4088:4088+1605 ]                                  
-        else:
-            X_validation_dict['inputs_intermediate'] = traces_val[:,4088+1605 + 93*byte:4088+1605 + 93*(byte+1) ] 
-            X_validation_dict['inputs_rin'] = traces_val[:,4088:4088+1605 ] 
-
-        
+        X_profiling_dict['alpha'] = get_hot_encode(np.array(labels_dict['alpha'],dtype = np.uint8)[:n_traces])
+    if t:
+        X_profiling_dict['inputs_rin'] = traces[:,2000:2000+1000]
+    else:
+        X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
+    # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
+    # X_profiling_dict['inputs_mj'] = traces[:,3584:3584 + 25 * 16].reshape((n_traces,25,16))
+    # X_profiling_dict['inputs_s_mj'] = traces[:,3984:3984 + 10 * 16].reshape((n_traces,10,16))
+    # X_profiling_dict['inputs_t_mj'] = traces[:,4144:4144 + 10 * 16].reshape((n_traces,10,16))
+    X_profiling_dict['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
 
     Y_profiling_dict = {}
+    # Y_profiling_dict['output_alpha'] = get_hot_encode(np.array(labels_dict['alpha'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    # Y_profiling_dict['output_rin'] = get_hot_encode(np.array(labels_dict['rin'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    # Y_profiling_dict['output_beta'] = get_hot_encode(np.array(labels_dict['beta'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    
+    s1 = np.array(labels_dict['s1'],dtype = np.uint8)[:n_traces]
+    t1 = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces]
+    all_permutations = np.array(labels_dict['p'],dtype = np.uint8)[:n_traces]
 
-    permutations = np.array(labels_dict['p'],np.uint8)[:n_traces,byte]
-    real_values_t1_temp = np.array(labels_dict[target],dtype = np.uint8)[:n_traces]
-    real_values_t1  = np.array([real_values_t1_temp[i,permutations[i]] for i in range(len(real_values_t1_temp))])
-    Y_profiling_dict['output'] = get_hot_encode(real_values_t1,classes = 256) if encoded_labels else  real_values_t1 
-   
+    if t:
+        Y_profiling_dict['output'] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+    else:
+        Y_profiling_dict['output'] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+
+    # for branch in range(4):
+    #     Y_profiling_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch ],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 1],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 2],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 3],1)],axis = 1),axis = 1)
+    
+
+    print('Finished loading dataset {}'.format(dataset))
     if training:
+        
+        traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'validation')
+        traces_val = np.expand_dims(traces_val,2)
+        X_validation_dict = {}  
+        if not alpha_known: 
+            X_validation_dict['inputs_alpha'] = traces_val[:,:2000]
+        else:
+            X_validation_dict['alpha'] = get_hot_encode(np.array(labels_dict_val['alpha'],dtype =np.uint8)[:n_traces//10])
+        if t:
+            X_validation_dict['inputs_rin'] = traces_val[:,2000:2000+1000]
+        else:
+            X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
+        # X_validation_dict['inputs_m'] = traces_val[:,3200:3200 + 24 * 16].reshape((n_traces//10,24*4,4))
+        # X_validation_dict['inputs_mj'] = traces_val[:,3584:3584 + 25 * 16].reshape((n_traces//10,25,16))
+        # X_validation_dict['inputs_s_mj'] = traces_val[:,3984:3984 + 10 * 16].reshape((n_traces//10,10,16))
+        # X_validation_dict['inputs_t_mj'] = traces_val[:,4144:4144 + 10 * 16].reshape((n_traces//10,10,16))
+        X_validation_dict['inputs_block'] = traces_val[:,4304:4304 + 93 * 16].reshape((n_traces//10,93,16))
+
         Y_validation_dict = {}
-        permutations_val = np.array(labels_dict_val['p'],np.uint8)[:10000,byte]
-        real_values_t1_temp_val = np.array(labels_dict_val[target],dtype = np.uint8)[:10000]
-        real_values_t1_val  = np.array([real_values_t1_temp_val[i,permutations_val[i]] for i in range(len(real_values_t1_temp_val))])
-        Y_validation_dict['output'] = get_hot_encode(real_values_t1_val,classes = 256 )   
+# =============================================================================
+#         Y_validation_dict['output_alpha'] = get_hot_encode(np.array(labels_dict_val['alpha'],dtype = np.uint8)[:n_traces//10])
+#         Y_validation_dict['output_rin'] = get_hot_encode(np.array(labels_dict_val['rin'],dtype = np.uint8)[:n_traces//10])
+#         Y_validation_dict['output_beta'] = get_hot_encode(np.array(labels_dict_val['beta'],dtype = np.uint8)[:n_traces//10])
+# =============================================================================
+        
+        s1 = np.array(labels_dict_val['s1'],dtype = np.uint8)[:n_traces//10]
+        t1 = np.array(labels_dict_val['t1'],dtype = np.uint8)[:n_traces//10]
+        all_permutations = np.array(labels_dict_val['p'],dtype = np.uint8)[:n_traces//10]
+
+        if t:
+            Y_validation_dict['output'] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+        else:
+            Y_validation_dict['output'] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+
+        # for branch in range(4):
+        #     Y_validation_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch ],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 1],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 2],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 3],1)],axis = 1),axis = 1)
+        
+        print('Finished loading dataset {}'.format('validation'))
+
         return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
    
     else:
@@ -468,7 +493,7 @@ def load_dataset_third_order(byte,flat = False,whole = False,n_traces = None,dat
         return (X_profiling_dict,Y_profiling_dict)   
     
 
-def load_dataset_multi(n_traces = None,cycle = False,noperm = False,whole = False,dataset = 'training',encoded_labels = True,print_logs = True,permutations = False):
+def load_dataset_multi(n_traces = None,only_t = False,only_s = False,known_alpha = False,whole = False,dataset = 'training',encoded_labels = True,print_logs = True,permutations = False):
     training = dataset == 'training' 
     if print_logs :
         str_targets = 'Loading samples and labels in order to train the multi-task model'
@@ -479,9 +504,14 @@ def load_dataset_multi(n_traces = None,cycle = False,noperm = False,whole = Fals
     traces = np.expand_dims(traces,2)
 
     X_profiling_dict = {}  
-    X_profiling_dict['inputs_alpha'] = traces[:,:2000]
-    X_profiling_dict['inputs_rin'] = traces[:,2000:2000+1000]
-    X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
+    if not known_alpha:
+        X_profiling_dict['inputs_alpha'] = traces[:,:2000]
+    else:
+        X_profiling_dict['alpha'] = get_hot_encode(np.array(labels_dict['alpha'],dtype = np.uint8)[:n_traces])
+    if not only_s:
+        X_profiling_dict['inputs_rin'] = traces[:,2000:2000+1000]
+    if not only_t:
+        X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
     # X_profiling_dict['inputs_m'] = traces[:,3200:3200 + 24 * 16].reshape((n_traces,24*4,4))
     # X_profiling_dict['inputs_mj'] = traces[:,3584:3584 + 25 * 16].reshape((n_traces,25,16))
     # X_profiling_dict['inputs_s_mj'] = traces[:,3984:3984 + 10 * 16].reshape((n_traces,10,16))
@@ -502,11 +532,14 @@ def load_dataset_multi(n_traces = None,cycle = False,noperm = False,whole = Fals
         # Y_profiling_dict['output_s_beta_{}'.format(byte)] = get_hot_encode(np.array(labels_dict['s1^beta'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,byte])
         # Y_profiling_dict['output_t_rin_{}'.format(byte)] = get_hot_encode(np.array(labels_dict['t1^rin'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,byte])
         # Y_profiling_dict['output_j_{}'.format(byte)] = get_hot_encode(permutations[:,byte],classes = 16)
-        # Y_profiling_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-        if not permutations:
+        if only_s:
+            Y_profiling_dict['output_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+        elif only_t:
+            Y_profiling_dict['output_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+        else:
             Y_profiling_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-        else:        
-            Y_profiling_dict['output_t_{}'.format(byte)] = get_hot_encode(t1[:,byte] )
+            Y_profiling_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+
     # for branch in range(4):
     #     Y_profiling_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch ],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 1],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 2],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 3],1)],axis = 1),axis = 1)
     
@@ -517,9 +550,14 @@ def load_dataset_multi(n_traces = None,cycle = False,noperm = False,whole = Fals
         traces_val , labels_dict_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'validation')
         traces_val = np.expand_dims(traces_val,2)
         X_validation_dict = {}  
-        X_validation_dict['inputs_alpha'] = traces_val[:,:2000]
-        X_validation_dict['inputs_rin'] = traces_val[:,2000:2000+1000]
-        X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
+        if not known_alpha: 
+            X_validation_dict['inputs_alpha'] = traces_val[:,:2000]
+        else:
+            X_validation_dict['alpha'] = get_hot_encode(np.array(labels_dict_val['alpha'],dtype =np.uint8)[:n_traces//10])
+        if not only_s:
+            X_validation_dict['inputs_rin'] = traces_val[:,2000:2000+1000]
+        if not only_t:
+            X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
         # X_validation_dict['inputs_m'] = traces_val[:,3200:3200 + 24 * 16].reshape((n_traces//10,24*4,4))
         # X_validation_dict['inputs_mj'] = traces_val[:,3584:3584 + 25 * 16].reshape((n_traces//10,25,16))
         # X_validation_dict['inputs_s_mj'] = traces_val[:,3984:3984 + 10 * 16].reshape((n_traces//10,10,16))
@@ -544,11 +582,103 @@ def load_dataset_multi(n_traces = None,cycle = False,noperm = False,whole = Fals
             # # Y_validation_dict['output_m_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,byte])
             # # Y_validation_dict['output_mj_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['mj'],dtype = np.uint8)[:n_traces//10,byte])
             # Y_validation_dict['output_j_{}'.format(byte)] = get_hot_encode(permutations[:,byte],classes = 16)
-            # Y_validation_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
-            if not permutations:
-                Y_validation_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+            if only_s:
+                Y_validation_dict['output_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+            elif only_t:
+                Y_validation_dict['output_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
             else:
-                Y_validation_dict['output_t_{}'.format(byte)] = get_hot_encode( t1[:,byte])
+                Y_validation_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+                Y_validation_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+                
+        # for branch in range(4):
+        #     Y_validation_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch ],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 1],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 2],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 3],1)],axis = 1),axis = 1)
+        
+        print('Finished loading dataset {}'.format('validation'))
+        return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
+   
+    else:
+        return (X_profiling_dict,Y_profiling_dict)    
+
+
+def load_dataset_hierarchical(n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True,permutations = False):
+    training = dataset == 'training' 
+    if print_logs :
+        str_targets = 'Loading samples and labels in order to train the multi-task model'
+        print(str_targets)
+        
+    traces , labels_dict , data = read_from_h5_file(n_traces=n_traces,dataset = dataset, load_plaintexts = True)
+   
+    traces = np.expand_dims(traces,2)
+
+    X_profiling_dict = {}  
+
+    X_profiling_dict['inputs_alpha'] = traces[:,:2000]
+    X_profiling_dict['inputs_rin'] = traces[:,2000:2000+1000]
+    X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
+
+    X_profiling_dict['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
+
+    Y_profiling_dict = {}
+    # Y_profiling_dict['output_alpha'] = get_hot_encode(np.array(labels_dict['alpha'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    # Y_profiling_dict['output_rin'] = get_hot_encode(np.array(labels_dict['rin'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    # Y_profiling_dict['output_beta'] = get_hot_encode(np.array(labels_dict['beta'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces])
+    k1 = np.array(labels_dict['k1'],dtype = np.uint8)[:n_traces]
+    s1 = np.array(labels_dict['s1'],dtype = np.uint8)[:n_traces]
+    t1 = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces]
+    p1 = np.array(data['plaintexts'],dtype = np.uint8)[:n_traces]
+    all_permutations = np.array(labels_dict['p'],dtype = np.uint8)[:n_traces]
+    X_profiling_dict['plaintexts'] = np.empty((n_traces,16,256),dtype = np.uint8)
+    for byte in range(16):    
+        # Y_profiling_dict['output_s_beta_{}'.format(byte)] = get_hot_encode(np.array(labels_dict['s1^beta'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,byte])
+        # Y_profiling_dict['output_t_rin_{}'.format(byte)] = get_hot_encode(np.array(labels_dict['t1^rin'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,byte])
+        # Y_profiling_dict['output_j_{}'.format(byte)] = get_hot_encode(permutations[:,byte],classes = 16)
+        X_profiling_dict['plaintexts'][:,byte] = get_hot_encode( np.array([p1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+        Y_profiling_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+        Y_profiling_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+        Y_profiling_dict['output_kj_{}'.format(byte)] = get_hot_encode( np.array([k1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
+    # for branch in range(4):
+    #     Y_profiling_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch ],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 1],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 2],1),np.expand_dims(np.array(labels_dict['m'],dtype = np.uint8)[cycle * n_traces:(cycle+1) *n_traces,4 * branch + 3],1)],axis = 1),axis = 1)
+    
+
+    print('Finished loading dataset {}'.format(dataset))
+    if training:
+        
+        traces_val , labels_dict_val , data_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'validation',load_plaintexts = True)
+        traces_val = np.expand_dims(traces_val,2)
+        X_validation_dict = {}  
+      
+        X_validation_dict['inputs_alpha'] = traces_val[:,:2000]     
+        X_validation_dict['inputs_rin'] = traces_val[:,2000:2000+1000]     
+        X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
+        # X_validation_dict['inputs_m'] = traces_val[:,3200:3200 + 24 * 16].reshape((n_traces//10,24*4,4))
+        # X_validation_dict['inputs_mj'] = traces_val[:,3584:3584 + 25 * 16].reshape((n_traces//10,25,16))
+        # X_validation_dict['inputs_s_mj'] = traces_val[:,3984:3984 + 10 * 16].reshape((n_traces//10,10,16))
+        # X_validation_dict['inputs_t_mj'] = traces_val[:,4144:4144 + 10 * 16].reshape((n_traces//10,10,16))
+        X_validation_dict['inputs_block'] = traces_val[:,4304:4304 + 93 * 16].reshape((n_traces//10,93,16))
+
+        Y_validation_dict = {}
+# =============================================================================
+#         Y_validation_dict['output_alpha'] = get_hot_encode(np.array(labels_dict_val['alpha'],dtype = np.uint8)[:n_traces//10])
+#         Y_validation_dict['output_rin'] = get_hot_encode(np.array(labels_dict_val['rin'],dtype = np.uint8)[:n_traces//10])
+#         Y_validation_dict['output_beta'] = get_hot_encode(np.array(labels_dict_val['beta'],dtype = np.uint8)[:n_traces//10])
+# =============================================================================
+        k1 = np.array(labels_dict_val['k1'],dtype = np.uint8)[:n_traces//10]
+        s1 = np.array(labels_dict_val['s1'],dtype = np.uint8)[:n_traces//10]
+        t1 = np.array(labels_dict_val['t1'],dtype = np.uint8)[:n_traces//10]
+        p1 = np.array(data_val['plaintexts'],dtype = np.uint8)[:n_traces//10]
+        all_permutations = np.array(labels_dict_val['p'],dtype = np.uint8)[:n_traces//10]
+        X_validation_dict['plaintexts'] = np.empty((n_traces//10,16,256),dtype = np.uint8)
+        for byte in range(16):    
+            # Y_validation_dict['output_s_beta_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['s1^beta'],dtype = np.uint8)[:n_traces//10,byte])
+            # Y_validation_dict['output_t_rin_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['t1^rin'],dtype = np.uint8)[:n_traces//10,byte])
+            # # Y_validation_dict['output_m_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,byte])
+            # # Y_validation_dict['output_mj_{}'.format(byte)] = get_hot_encode(np.array(labels_dict_val['mj'],dtype = np.uint8)[:n_traces//10,byte])
+            # Y_validation_dict['output_j_{}'.format(byte)] = get_hot_encode(permutations[:,byte],classes = 16)
+            X_validation_dict['plaintexts'][:,byte] = get_hot_encode( np.array([p1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+            Y_validation_dict['output_kj_{}'.format(byte)] = get_hot_encode( np.array([k1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+            Y_validation_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+            Y_validation_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
+                
         # for branch in range(4):
         #     Y_validation_dict['m_sig_{}'.format(branch)] = np.unpackbits(np.concatenate([np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch ],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 1],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 2],1),np.expand_dims(np.array(labels_dict_val['m'],dtype = np.uint8)[:n_traces//10,4 * branch + 3],1)],axis = 1),axis = 1)
         
