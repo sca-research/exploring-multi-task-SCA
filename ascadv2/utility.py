@@ -77,16 +77,17 @@ class XorLayer(tf.keras.layers.Layer):
         base_config = super(XorLayer,self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 class SharedWeightsDenseLayer(tf.keras.layers.Layer):
-    def __init__(self, input_dim=1,units = 1, shares = 16,name = '',activation = True,precision = 'float32'):
+    def __init__(self, input_dim=1,units = 1, shares = 16,name = '',activation = True,precision = 'float32',seed = 42):
         if name == '':
             name = 'SharedWeightsDenseLayer_'+str(np.random.randint(0,high = 99999))
         super(SharedWeightsDenseLayer, self).__init__(name = name )
         self.w = self.add_weight(shape=(input_dim,units), dtype=precision,
-                                  trainable=True,name = 'weights'+name,initializer=tf.keras.initializers.RandomUniform(seed=7)
+                                  trainable=True,name = 'weights'+name,initializer=tf.keras.initializers.RandomUniform(seed=seed)
                                   
         )
+        print(seed)
         self.b = self.add_weight(shape=(units,shares), dtype=precision,
-                                  trainable=True,name = 'biais'+name,initializer=tf.keras.initializers.RandomUniform(seed=7)
+                                  trainable=True,name = 'biais'+name,initializer=tf.keras.initializers.RandomUniform(seed=seed)
                                   
         )
         self.input_dim = input_dim
@@ -101,7 +102,7 @@ class SharedWeightsDenseLayer(tf.keras.layers.Layer):
         if self.activation:
             return tf.keras.activations.selu( x + self.b)
         else:
-            return  x + self.b    
+            return  x + self.b   
 log_table=[ 0, 0, 25, 1, 50, 2, 26, 198, 75, 199, 27, 104, 51, 238, 223, 3,
     100, 4, 224, 14, 52, 141, 129, 239, 76, 113, 8, 200, 248, 105, 28, 193,
     125, 194, 29, 181, 249, 185, 39, 106, 77, 228, 166, 114, 154, 201, 9, 120,
@@ -300,7 +301,7 @@ def load_dataset(byte,t = False,alpha_known = False,n_traces = None,dataset = 't
     else:
         X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
 
-    X_profiling_dict['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
+    X_profiling_dict['inputs_block'] = traces[:,3200:3200 + 93 * 16].reshape((n_traces,93,16))
 
     Y_profiling_dict = {}
 
@@ -329,7 +330,7 @@ def load_dataset(byte,t = False,alpha_known = False,n_traces = None,dataset = 't
         else:
             X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
 
-        X_validation_dict['inputs_block'] = traces_val[:,4304:4304 + 93 * 16].reshape((n_traces//10,93,16))
+        X_validation_dict['inputs_block'] = traces_val[:,3200:3200 + 93 * 16].reshape((n_traces//10,93,16))
 
         Y_validation_dict = {}
 
@@ -374,10 +375,7 @@ def load_dataset_multi(n_traces = None,only_t = False,only_s = False,known_alpha
     if not only_t:
         X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
 
-    X_profiling_dict['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
-    if permutations:
-        X_profiling_dict['inputs_permutations'] = traces[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces,93,16))
-    
+    X_profiling_dict['inputs_block'] = traces[:,3200:3200 + 93 * 16].reshape((n_traces,93,16))
     Y_profiling_dict = {}
 
     s1 = np.array(labels_dict['s1'],dtype = np.uint8)[:n_traces]
@@ -409,10 +407,8 @@ def load_dataset_multi(n_traces = None,only_t = False,only_s = False,known_alpha
         if not only_t:
             X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
 
-        X_validation_dict['inputs_block'] = traces_val[:,4304:4304 + 93 * 16].reshape((n_traces//10,93,16))
-        if permutations:
-            X_validation_dict['inputs_permutations'] = traces_val[:,4304+ 93 * 16:4304+ 93 * 16 + 93 * 16].reshape((n_traces//10,93,16))
-        
+        X_validation_dict['inputs_block'] = traces_val[:,3200:3200 + 93 * 16].reshape((n_traces//10,93,16))
+
         Y_validation_dict = {}
 
         s1 = np.array(labels_dict_val['s1'],dtype = np.uint8)[:n_traces//10]
@@ -435,72 +431,6 @@ def load_dataset_multi(n_traces = None,only_t = False,only_s = False,known_alpha
     else:
         return (X_profiling_dict,Y_profiling_dict)    
 
-
-def load_dataset_hierarchical(n_traces = None,dataset = 'training',encoded_labels = True,print_logs = True,permutations = False):
-    training = dataset == 'training' 
-    if print_logs :
-        str_targets = 'Loading samples and labels in order to train the multi-task model'
-        print(str_targets)
-        
-    traces , labels_dict , data = read_from_h5_file(n_traces=n_traces,dataset = dataset, load_plaintexts = True)
-   
-    traces = np.expand_dims(traces,2)
-
-    X_profiling_dict = {}  
-
-    X_profiling_dict['inputs_alpha'] = traces[:,:2000]
-    X_profiling_dict['inputs_rin'] = traces[:,2000:2000+1000]
-    X_profiling_dict['inputs_beta'] = traces[:,3000:3000+200]
-
-    X_profiling_dict['inputs_block'] = traces[:,4304:4304 + 93 * 16].reshape((n_traces,93,16))
-
-    Y_profiling_dict = {}
-
-    k1 = np.array(labels_dict['k1'],dtype = np.uint8)[:n_traces]
-    s1 = np.array(labels_dict['s1'],dtype = np.uint8)[:n_traces]
-    t1 = np.array(labels_dict['t1'],dtype = np.uint8)[:n_traces]
-    p1 = np.array(data['plaintexts'],dtype = np.uint8)[:n_traces]
-    all_permutations = np.array(labels_dict['p'],dtype = np.uint8)[:n_traces]
-    X_profiling_dict['plaintexts'] = np.empty((n_traces,16,256),dtype = np.uint8)
-    for byte in range(16):    
-        X_profiling_dict['plaintexts'][:,byte] = get_hot_encode( np.array([p1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-        Y_profiling_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-        Y_profiling_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-        Y_profiling_dict['output_kj_{}'.format(byte)] = get_hot_encode( np.array([k1[i,all_permutations[i,byte]] for i in range(n_traces)],dtype = np.uint8))
-
-
-    print('Finished loading dataset {}'.format(dataset))
-    if training:
-        
-        traces_val , labels_dict_val , data_val = read_from_h5_file(n_traces=n_traces//10,dataset = 'validation',load_plaintexts = True)
-        traces_val = np.expand_dims(traces_val,2)
-        X_validation_dict = {}  
-      
-        X_validation_dict['inputs_alpha'] = traces_val[:,:2000]     
-        X_validation_dict['inputs_rin'] = traces_val[:,2000:2000+1000]     
-        X_validation_dict['inputs_beta'] = traces_val[:,3000:3000+200]
-
-        X_validation_dict['inputs_block'] = traces_val[:,4304:4304 + 93 * 16].reshape((n_traces//10,93,16))
-
-        Y_validation_dict = {}
-
-        k1 = np.array(labels_dict_val['k1'],dtype = np.uint8)[:n_traces//10]
-        s1 = np.array(labels_dict_val['s1'],dtype = np.uint8)[:n_traces//10]
-        t1 = np.array(labels_dict_val['t1'],dtype = np.uint8)[:n_traces//10]
-        p1 = np.array(data_val['plaintexts'],dtype = np.uint8)[:n_traces//10]
-        all_permutations = np.array(labels_dict_val['p'],dtype = np.uint8)[:n_traces//10]
-        X_validation_dict['plaintexts'] = np.empty((n_traces//10,16,256),dtype = np.uint8)
-        for byte in range(16):    
-            X_validation_dict['plaintexts'][:,byte] = get_hot_encode( np.array([p1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
-            Y_validation_dict['output_kj_{}'.format(byte)] = get_hot_encode( np.array([k1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
-            Y_validation_dict['output_tj_{}'.format(byte)] = get_hot_encode( np.array([t1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
-            Y_validation_dict['output_sj_{}'.format(byte)] = get_hot_encode( np.array([s1[i,all_permutations[i,byte]] for i in range(n_traces//10)],dtype = np.uint8))
-
-        print('Finished loading dataset {}'.format('validation'))
-        return tf.data.Dataset.from_tensor_slices((X_profiling_dict ,Y_profiling_dict)), tf.data.Dataset.from_tensor_slices(( X_validation_dict,Y_validation_dict)) 
-   
-    else:
-        return (X_profiling_dict,Y_profiling_dict)    
 
  
 
