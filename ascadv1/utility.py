@@ -54,12 +54,12 @@ shift_rows_s = list([
 
 
 class PoolingCrop(tf.keras.layers.Layer):
-    def __init__(self, input_dim=1, use_dropout = True,name = ''):
+    def __init__(self, input_dim=1, use_dropout = True,name = '',seed = 42):
         if name == '':
             name = 'Crop_'+str(np.random.randint(0,high = 99999))
         super(PoolingCrop, self).__init__(name = name )
         self.w = self.add_weight(shape=(input_dim,1), dtype="float32",
-                                  trainable=True,name = 'weights'+name
+                                  trainable=True,name = 'weights'+name,initializer=tf.keras.initializers.RandomUniform(seed = seed)
                                   
         )
         self.input_dim = input_dim
