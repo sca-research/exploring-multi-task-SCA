@@ -38,6 +38,9 @@ os.environ['TF_DETERMINISTIC_OPS'] = '1'
 os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
 
 ###########################################################################
+#  Section 5.3 Leveraging different targets masked by the same randomness : 
+#   Both multi-target models, m_d with shared = True, m_{nt + d -1} with shared = False
+
 
 def model_multi(learning_rate=0.001, classes=256,shared = False , name ='',summary = True,seed = 42):
     
@@ -121,7 +124,9 @@ def model_multi(learning_rate=0.001, classes=256,shared = False , name ='',summa
     return model  , losses  ,metrics 
 
 
-
+###########################################################################
+#  Section 5.1 Leveraging common masks with a shared branch : 
+#   model single-task m_s with s = True, and alpha_known = True
 
 def model_single_task(s = False, t = False,seed = 42,alpha_known = True, summary = True):
     inputs_dict = {}
@@ -174,6 +179,11 @@ def model_single_task(s = False, t = False,seed = 42,alpha_known = True, summary
     losses['output'] = 'categorical_crossentropy'
     model = Model(inputs = inputs_dict,outputs = outputs,name='cnn_single')    
     return model  , losses  ,metrics 
+
+
+###########################################################################
+#  Section 5.1 Leveraging common masks with a shared branch : 
+#   Both model multi-task : m_d with shared = True, and alpha_known = True, and m_{nt + d -1 } with shared = False and alpha_known = True
 
 def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary = True):
     inputs_dict = {}
@@ -240,6 +250,10 @@ def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary
         model.summary()
     return model  , losses  ,metrics 
 
+
+###########################################################################
+#  Section 5.3 Leveraging different targets masked by the same randomness : 
+#   single-target but multi-task model, m_st-d with shared = True and known_alpha = False
 
 def model_multi_task_t_only(shared = False,seed = 42,known_alpha = False,summary = True):
     inputs_dict = {}
@@ -319,6 +333,9 @@ def model_multi_task_t_only(shared = False,seed = 42,known_alpha = False,summary
 
 ######################## ARCHITECTURE BUILDING ################################
 
+###########################################################################
+#  All experiments
+
 def cnn_core(inputs_core,convolution_blocks , kernel_size,filters, strides , pooling_size,seed = 42):
     x = inputs_core
     for block in range(convolution_blocks):
@@ -343,6 +360,8 @@ def dense_core(inputs_core,dense_blocks,dense_units,activated = False,name = '',
     else:
         output_layer = Dense(256,kernel_initializer=tf.keras.initializers.RandomUniform(seed=seed))(x)   
     return output_layer    
+
+## Low-level parameter sharing
 
 def dense_core_shared(inputs_core, shared_block = 1,non_shared_block = 1, units = 8, branches = 16,output_units = 32,precision = 'float32',split = False,seed = 42):
     non_shared_branch = []
@@ -387,6 +406,7 @@ def train_model(shared,training_type,byte):
         print('')
 
 
+    ## Reducing the learning rate after the initial first 25 epochs to reduce overfitting
 
     learning_rates = [0.001,0.0001,0.00001]
     epochs  = [25,4,1]
@@ -435,6 +455,18 @@ if __name__ == "__main__":
     SINGLE_S = args.SINGLE_S
     FIRST = args.FIRST
     
+    #########################
+    # Section 5.1 :
+    # m_d : args --SHARED --MULTI_S --FIRST
+    # m_{nt + d - 1} : args --MULTI_S --FIRST
+    # m_s : args --SINGLE_S --FIRST
+
+    #########################
+    # Section 5.3 :
+    # m_d : args --SHARED --MULTI 
+    # m_{nt + d - 1} : args --MULTI
+    # m_st-d : args --MULTI_T --SHARED
+
 
     if MULTI:
         TRAINING_TYPE = 'multi'
@@ -461,6 +493,9 @@ if __name__ == "__main__":
     for seed in seeds_random:
         tf.random.set_seed(seed)
         np.random.seed(seed)
+        
+        # Depending on your setup, you might need to remove the "Process"
+        
         if not 'single' in TRAINING_TYPE:
 
             process_eval = Process(target=train_model, args=(SHARED,TRAINING_TYPE,'all'))
@@ -471,8 +506,14 @@ if __name__ == "__main__":
             for byte in range(16):
                 process_eval = Process(target=train_model, args=(False,TRAINING_TYPE + ('' if not FIRST else '_first'),byte))
                 process_eval.start()
-                process_eval.join()                                    
+                process_eval.join()    
+                                
+        # if not 'single' in TRAINING_TYPE:
+        #     train_model(SHARED,TRAINING_TYPE,'all')
 
+        # else:
+        #     for byte in range(16):
+        #         train_model(False,TRAINING_TYPE + ('' if not FIRST else '_first'),byte)
 
     print("$ Done !")
             

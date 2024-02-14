@@ -36,6 +36,8 @@ os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
   
 
 ###########################################################################
+# ALL ASCAD-R experiments 
+#   model single-task m_s
 
 def model_single_task(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = True,seed = 42):
     inputs_dict = {}
@@ -64,7 +66,9 @@ def model_single_task(convolution_blocks = 1,dense_blocks =2, kernel_size = [34]
     return model
 
 
-
+##############################################################
+#  Section 5.1 Leveraging common masks with a shared branch : 
+#   model multi-task m_{nt + d + 1} 
 
 def model_multi_task_single_target_one_shared_mask(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False,seed = 42):
     
@@ -109,7 +113,9 @@ def model_multi_task_single_target_one_shared_mask(convolution_blocks = 1,dense_
     if summary:
         model.summary()
     return model   
-
+##############################################################
+#  Section 5.1 Leveraging common masks with a shared branch : 
+#   model multi-task m_{d} 
 
 def model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False,seed = 42):
     
@@ -147,6 +153,10 @@ def model_multi_task_single_target_one_shared_mask_shared_branch(convolution_blo
         model.summary()
     return model   
 
+
+##############################################################
+#  Section 5.2 Leveraging different masks using low-level parameter sharing : 
+#   model multi-task m_{d} 
 
 def model_multi_task_single_target(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False,seed = 42):
     
@@ -186,7 +196,9 @@ def model_multi_task_single_target(convolution_blocks = 1,dense_blocks =2, kerne
         model.summary()
     return model   
 
-
+##############################################################
+#  Section 5.2 Leveraging different masks using low-level parameter sharing : 
+#   model multi-task m_{nt * d} 
 
 def model_multi_task_single_target_not_shared(convolution_blocks = 1,dense_blocks =2, kernel_size = [34],filters = 4, strides = 17 , pooling_size = 2,dense_units= 200,input_length=1000, learning_rate=0.001, classes=256 , name ='',summary = False,seed = 42):
     
@@ -229,7 +241,9 @@ def model_multi_task_single_target_not_shared(convolution_blocks = 1,dense_block
 
 
 
-
+################################################################
+# ALL ASCAD-R EXPERIMENTS
+# block of layers noted as \theta_{\forall} 
 
 def input_layer_creation(inputs,input_length,target_size = 25000,seed = 42,name = ''):
 
@@ -246,10 +260,6 @@ def input_layer_creation(inputs,input_length,target_size = 25000,seed = 42,name 
     x = crop  
     return x
 
-
-
-### Cnn for shared layers and mask/permutations single task models.
-
 def cnn_core(inputs_core,convolution_blocks , kernel_size,filters, strides , pooling_size,seed = 42):
     x = inputs_core
     for block in range(convolution_blocks):
@@ -261,17 +271,25 @@ def cnn_core(inputs_core,convolution_blocks , kernel_size,filters, strides , poo
 
     return output_layer
 
-def dense_core(inputs_core,dense_blocks,dense_units,batch_norm = False,activated = False,seed = 42):
+
+################################################################
+# ALL ASCAD-R EXPERIMENTS
+# prediction heads of models without low-level parameter sharing
+
+def dense_core(inputs_core,dense_blocks,dense_units,activated = False,seed = 42):
     x = inputs_core    
     for block in range(dense_blocks):
         x = Dense(dense_units, activation='selu',kernel_initializer=tf.keras.initializers.RandomUniform(seed=seed))(x)
-        if batch_norm:
-           x = BatchNormalization()(x)
     if activated:
         output_layer = Dense(256,activation ='softmax' ,kernel_initializer=tf.keras.initializers.RandomUniform(seed=seed))(x)  
     else:
         output_layer = Dense(256,kernel_initializer=tf.keras.initializers.RandomUniform(seed=seed))(x)   
     return output_layer    
+
+
+################################################################
+# ALL ASCAD-R EXPERIMENTS
+# prediction heads of models with low-level parameter sharing
 
 def dense_core_shared(inputs_core, shared_block = 1,non_shared_block = 1, units = 64, branches = 14,seed = 42):
     non_shared_branch = []
@@ -279,18 +297,16 @@ def dense_core_shared(inputs_core, shared_block = 1,non_shared_block = 1, units 
         x = inputs_core
         for block in range(non_shared_block):
             x = Dense(units,activation ='selu',kernel_initializer=tf.keras.initializers.RandomUniform(seed=seed))(x)
-            #x = BatchNormalization()(x)
         non_shared_branch.append(tf.expand_dims(x,2))
     x = Concatenate(axis = 2)(non_shared_branch)
    
     for block in range(shared_block):
         x = SharedWeightsDenseLayer(input_dim = x.shape[1],units = units,shares = 14,seed = seed)(x)        
-        #x = BatchNormalization(axis = 1)(x)
     output_layer = SharedWeightsDenseLayer(input_dim = x.shape[1],units = 256,activation = False,shares = 14,seed = seed)(x)   
     return output_layer 
 
-
-#### Training high level function
+################################################################
+#### Training high level function #####
 def train_model(training_type,byte,seed):
     epochs = 100
     batch_size = 250 
@@ -316,29 +332,29 @@ def train_model(training_type,byte,seed):
     monitor = 'val_accuracy'
     mode = 'max'
 
-    # m_single
+    # m_s
     if single_task:
         
         model = model_single_task(input_length = window)       
     
-    # m_shared  SBOX OUTPUT
+    # m_d  SBOX OUTPUT
     elif model_t == 'model_multi_task_single_target':
         model = model_multi_task_single_target(input_length = window,seed = seed)         
         monitor = 'val_loss'   
         mode = 'min'    
-    # m_0   SBOX OUTPUT
+    # m_{nt * d}   SBOX OUTPUT
     elif model_t == 'model_multi_task_single_target_not_shared':
 
         model = model_multi_task_single_target_not_shared(input_length = window,seed = seed)         
         monitor = 'val_loss'   
         mode = 'min'     
-    # m_0  SBOX INPUT 
+    # m_{nt + d - 1}  SBOX INPUT 
     elif model_t == 'model_multi_task_single_target_one_shared_mask':
         
         model = model_multi_task_single_target_one_shared_mask(input_length = window)                  
         monitor = 'val_loss'   
         mode = 'min'
-    # m-shared  SBOX INPUT
+    # m_d  SBOX INPUT
     elif model_t == 'model_multi_task_single_target_one_shared_mask_shared_branch':
         
         model = model_multi_task_single_target_one_shared_mask_shared_branch(input_length = window,seed = seed)                  
@@ -388,12 +404,16 @@ if __name__ == "__main__":
 
 
     seeds_random = np.random.randint(0,9999,size = 9)
-
+    # Because 42
     seeds_random = np.concatenate([[42],seeds_random],axis = 0)
+    
     for seed in seeds_random:
         tf.random.set_seed(seed)
         np.random.seed(seed)
         for training_type in training_types:
+            
+            # Depending on your setup, you might need to remove the "Process"
+            
             if not 'single_task' in training_type:
                 process_eval = Process(target=train_model, args=(training_type,'all',seed))
                 process_eval.start()
@@ -402,8 +422,16 @@ if __name__ == "__main__":
                 for byte in range(2,16):       
                     process_eval = Process(target=train_model, args=(training_type,byte,seed))
                     process_eval.start()
-                    process_eval.join()                          
+                    process_eval.join()       
+                    
+            # if not 'single_task' in training_type:
+            #     train_model(training_type,'all',seed)
 
+            # else:
+            #     for byte in range(2,16):       
+            #         train_model(training_type,byte,seed)
+                    
+                      
 
     print("$ Done !")
             
