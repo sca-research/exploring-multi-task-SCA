@@ -142,7 +142,7 @@ class MultiLayer(tf.keras.layers.Layer):
         all_maps = np.zeros((classes,classes),dtype =np.uint8)
         for i in range(classes):
             for j in range(classes):
-                all_maps[i, multGF256(i,j) ] = j
+                all_maps[i, j ] =   multGF256(i,j  )
         self.mapping2 = all_maps
         self.classes = classes
     
