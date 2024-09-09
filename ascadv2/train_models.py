@@ -171,7 +171,7 @@ def model_single_task(s = False, t = False,seed = 42,alpha_known = True, summary
            
      
     xor =  XorLayer(name = 'xor')([intermediate_core,mask_core])
-    mult = MultiLayer(name = 'output')([xor,alpha])
+    mult = MultiLayer(name = 'output')([alpha,xor])
 
     outputs['output'] = mult     
     metrics['output'] ='accuracy'
