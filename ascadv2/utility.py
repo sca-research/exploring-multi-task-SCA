@@ -357,7 +357,7 @@ def load_dataset_multi(n_traces = None,only_t = False,only_s = False,known_alpha
         print(str_targets)
         
     traces , labels_dict = read_from_h5_file(n_traces=n_traces,dataset = dataset)
-   
+    print(traces.shape)
     traces = np.expand_dims(traces,2)
 
     X_profiling_dict = {}  
