@@ -47,28 +47,6 @@ shift_rows_s = list([
     ])
 
 
-class XorLayer(tf.keras.layers.Layer):
-  def __init__(self,classes =256 ,name = ''):
-    super(XorLayer, self).__init__(name = name)
-    all_maps = np.zeros((classes,classes),dtype =np.uint8)
-    for i in range(classes):
-        for j in range(classes):
-            all_maps[i, i^j  ] = j
-    self.mapping2 = all_maps
-    self.classes = classes
-
-    def call(self, inputs):  
- 
-        pred1 = inputs[0]
-        pred2 = tnp.asarray(inputs[1])
-        p1 = pred1
-        p2 = pred2[:,self.mapping2]
-        print(p1.shape)
-        print(p2.shape)
-    
-        res = tf.reduce_sum(tf.multiply(tf.expand_dims(p1,2) , p2),axis = 1)
-        print(res.shape)
-        return res
 class SharedWeightsDenseLayer(tf.keras.layers.Layer):
     def __init__(self, input_dim=1,units = 1, shares = 16,name = '',activation = True,precision = 'float32',seed = 42):
         if name == '':
@@ -165,6 +143,33 @@ class MultiLayer(tf.keras.layers.Layer):
         base_config.update(config)
         return base_config
 
+
+class XorLayer(tf.keras.layers.Layer):
+    def __init__(self,classes = 256 ,name = ''):
+        super(XorLayer, self).__init__(name = name)
+        all_maps = np.zeros((classes,classes),dtype =np.uint8)
+        for i in range(classes):
+            for j in range(classes):
+                all_maps[i, j ] =   i^j
+        self.mapping2 = all_maps
+        self.classes = classes
+    
+    def call(self, inputs):  
+ 
+        pred1 = inputs[0]
+        pred2 = tnp.asarray(inputs[1])
+        p1 = pred1
+        p2 = pred2[:,self.mapping2]
+    
+        res = tf.reduce_sum(tf.multiply(tf.expand_dims(p1,2) , p2),axis = 1)
+        return res
+
+    def get_config(self):
+        config = {'mapping':self.mapping,
+                  'classes':self.classes}
+        base_config = super(MultiLayer,self).get_config()
+        base_config.update(config)
+        return base_config
 
 
 def get_pow_rank(x):
