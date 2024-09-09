@@ -65,6 +65,7 @@ class XorLayer(tf.keras.layers.Layer):
         p2 = pred2[:,self.mapping2]
     
         res = tf.reduce_sum(tf.multiply(tf.expand_dims(p1,2) , p2),axis = 1)
+        print(res.shape)
         return res
 class SharedWeightsDenseLayer(tf.keras.layers.Layer):
     def __init__(self, input_dim=1,units = 1, shares = 16,name = '',activation = True,precision = 'float32',seed = 42):

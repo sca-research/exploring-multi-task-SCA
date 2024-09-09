@@ -232,7 +232,7 @@ def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary
 
     for byte in range(16):   
         xor_sj_beta =  XorLayer(name = 'xor_sj_beta_{}'.format(byte))([s_branch[:,:,byte],beta_core])
-        print(xor_sj_beta.shape)
+     
         sj = MultiLayer(name = 'multi_s_{}'.format(byte))([xor_sj_beta,alpha])
         outputs['output_{}'.format(byte)] = Softmax(name = 'output_sj_{}'.format(byte))(sj)     
         metrics['output_{}'.format(byte)] ='accuracy'
