@@ -396,9 +396,9 @@ def train_model(shared,training_type,byte):
     
     if training_type == 'multi':     
         model , losses , metrics  = model_multi(shared = shared,seed = seed)   
-    elif training_type == 'multi_t':
+    elif 'multi_t' in training_type:
         model , losses , metrics  = model_multi_task_t_only(shared = shared,seed = seed, known_alpha = known_alpha)
-    elif training_type == 'multi_s':       
+    elif 'multi_s' in training_type  :       
         model , losses , metrics  = model_multi_task_s_only(shared = shared,seed = seed, known_alpha = known_alpha)
     elif 'single' in training_type:
         model , losses , metrics  = model_single_task(s = 'single_s' in training_type, t = 'single_t' in training_type,seed = seed, alpha_known = 'first' in training_type)
