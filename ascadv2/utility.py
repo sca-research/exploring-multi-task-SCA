@@ -161,7 +161,7 @@ class XorLayer(tf.keras.layers.Layer):
         p1 = pred1
         p2 = pred2[:,self.mapping2]
     
-        res = tf.reduce_sum(tf.multiply(tf.expand_dims(p1,2) , p2),axis = 1)
+        res = tf.einsum('ij,ikj->ik',p1,p2)
         return res
 
     def get_config(self):
