@@ -21,7 +21,7 @@ from utility import  METRICS_FOLDER , MODEL_FOLDER
 # import custom layers
 from utility import MultiLayer , XorLayer , SharedWeightsDenseLayer  , InvSboxLayer
 
-from utility import load_dataset, load_dataset_multi , load_dataset_hierarchical
+from utility import load_dataset, load_dataset_multi 
 
 
 import tensorflow.experimental.numpy as tnp
