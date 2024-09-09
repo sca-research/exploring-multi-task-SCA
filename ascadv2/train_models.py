@@ -421,7 +421,7 @@ def train_model(shared,training_type,byte):
         optimizer = Adam(learning_rate=learning_rates[cycle])
         model.compile(loss=losses, optimizer=optimizer, metrics=metrics)
         if 'multi' in training_type:           
-            X_profiling , validation_data = load_dataset_multi(n_traces = n_traces,only_t = training_type == 'multi_t',only_s = training_type == 'multi_s',dataset = 'training',known_alpha = known_alpha) 
+            X_profiling , validation_data = load_dataset_multi(n_traces = n_traces,only_t = 'multi_t' in training_type ,only_s ='multi_s' in training_type  ,dataset = 'training',known_alpha = known_alpha) 
         else:
             X_profiling , validation_data = load_dataset(byte,n_traces = n_traces,t = 'single_t' in training_type , alpha_known = 'first' in training_type,dataset = 'training') 
         X_profiling = X_profiling.shuffle(len(X_profiling)).batch(batch_size) 
