@@ -63,6 +63,8 @@ class XorLayer(tf.keras.layers.Layer):
         pred2 = tnp.asarray(inputs[1])
         p1 = pred1
         p2 = pred2[:,self.mapping2]
+        print(p1.shape)
+        print(p2.shape)
     
         res = tf.reduce_sum(tf.multiply(tf.expand_dims(p1,2) , p2),axis = 1)
         print(res.shape)
