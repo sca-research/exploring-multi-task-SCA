@@ -56,8 +56,7 @@ class XorLayer(tf.keras.layers.Layer):
             all_maps[i, i^j  ] = j
     self.mapping2 = all_maps
     self.classes = classes
-    print('SSSSSSSSSSSSSSSSSSSSSSSSSSS')
-    
+
     def call(self, inputs):  
  
         pred1 = inputs[0]

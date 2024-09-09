@@ -19,7 +19,7 @@ from multiprocessing import Process
 from utility import  METRICS_FOLDER , MODEL_FOLDER
 
 # import custom layers
-from utility import MultiLayer , XorLayer , SharedWeightsDenseLayer  , InvSboxLayer
+from utility import MultiLayer , XorLayer , SharedWeightsDenseLayer  
 
 from utility import load_dataset, load_dataset_multi 
 
@@ -231,6 +231,7 @@ def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary
         s_branch = Concatenate(axis = 2)(s_branch)
 
     for byte in range(16):   
+        print(s_branch[:,:,byte].shape,beta_core.shape)
         xor_sj_beta =  XorLayer(name = 'xor_sj_beta_{}'.format(byte))([s_branch[:,:,byte],beta_core])
      
         sj = MultiLayer(name = 'multi_s_{}'.format(byte))([xor_sj_beta,alpha])
