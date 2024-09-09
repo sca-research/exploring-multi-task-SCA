@@ -13,7 +13,6 @@ import tensorflow.experimental.numpy as tnp
 
 tnp.experimental_enable_numpy_behavior()
 
-from utils.generate_intermediate_values import multGF256
 
 from gmpy2 import f_divmod_2exp
 
