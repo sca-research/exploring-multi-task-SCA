@@ -185,7 +185,7 @@ def model_single_task(s = False, t = False,seed = 42,alpha_known = True, summary
 #  Section 5.1 Leveraging common masks with a shared branch : 
 #   Both model multi-task : m_d with shared = True, and alpha_known = True, and m_{nt + d -1 } with shared = False and alpha_known = True
 
-def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary = True):
+def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary = False):
     inputs_dict = {}
     outputs = {}
     
