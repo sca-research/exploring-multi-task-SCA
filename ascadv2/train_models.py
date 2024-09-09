@@ -97,11 +97,11 @@ def model_multi(learning_rate=0.001, classes=256,shared = False , name ='',summa
     for byte in range(16):     
 
         xor_sj_beta =  XorLayer(name = 'xor_sj_beta_{}'.format(byte))([s_branch[:,:,byte],beta_core])
-        sj = MultiLayer(name = 'multi_s_{}'.format(byte))([xor_sj_beta,alpha_core])
+        sj = MultiLayer(name = 'multi_s_{}'.format(byte))([alpha_core,xor_sj_beta])
         outputs['output_sj_{}'.format(byte)] = Softmax(name = 'output_sj_{}'.format(byte))(sj)     
 
         xor_tj_rin =  XorLayer(name = 'xor_tj_rin_{}'.format(byte))([t_branch[:,:,byte],rin_core])
-        tj = MultiLayer(name = 'multi_t_{}'.format(byte))([xor_tj_rin,alpha_core])
+        tj = MultiLayer(name = 'multi_t_{}'.format(byte))([alpha_core,xor_tj_rin])
 
         outputs['output_tj_{}'.format(byte)] = Softmax(name = 'output_tj_{}'.format(byte))(tj)     
         metrics['output_tj_{}'.format(byte)] ='accuracy'
@@ -234,7 +234,7 @@ def model_multi_task_s_only(seed = 42,shared = False,known_alpha = False,summary
         print(s_branch[:,:,byte].shape,beta_core.shape)
         xor_sj_beta =  XorLayer(name = 'xor_sj_beta_{}'.format(byte))([s_branch[:,:,byte],beta_core])
      
-        sj = MultiLayer(name = 'multi_s_{}'.format(byte))([xor_sj_beta,alpha])
+        sj = MultiLayer(name = 'multi_s_{}'.format(byte))([alpha,xor_sj_beta])
         outputs['output_{}'.format(byte)] = Softmax(name = 'output_sj_{}'.format(byte))(sj)     
         metrics['output_{}'.format(byte)] ='accuracy'
 
@@ -307,7 +307,7 @@ def model_multi_task_t_only(shared = False,seed = 42,known_alpha = False,summary
 
     for byte in range(16):     
         xor_tj_rin =  XorLayer(name = 'xor_tj_rin_{}'.format(byte))([t_branch[:,:,byte],rin_core])
-        tj = MultiLayer(name = 'multi_t_{}'.format(byte))([xor_tj_rin,alpha])
+        tj = MultiLayer(name = 'multi_t_{}'.format(byte))([alpha,xor_tj_rin])
 
         outputs['output_{}'.format(byte)] = Softmax(name = 'output_tj_{}'.format(byte))(tj)     
         metrics['output_{}'.format(byte)] ='accuracy'
